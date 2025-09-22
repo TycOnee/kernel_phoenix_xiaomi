@@ -288,6 +288,26 @@ void ksu_sucompat_exit(void)
 
 
 #ifdef CONFIG_KSU_SUSFS_SUS_SU
+static struct kprobe execve_kp = {
+	.symbol_name = SYS_EXECVE_SYMBOL,
+	.pre_handler = execve_handler_pre,
+};
+
+static struct kprobe newfstatat_kp = {
+	.symbol_name = SYS_NEWFSTATAT_SYMBOL,
+	.pre_handler = newfstatat_handler_pre,
+};
+
+static struct kprobe faccessat_kp = {
+	.symbol_name = SYS_FACCESSAT_SYMBOL,
+	.pre_handler = faccessat_handler_pre,
+};
+
+static struct kprobe pts_unix98_lookup_kp = {
+	.symbol_name = "pts_unix98_lookup",
+	.pre_handler = pts_unix98_lookup_pre,
+};
+
 extern bool ksu_devpts_hook;
 
 void ksu_susfs_disable_sus_su(void) {
