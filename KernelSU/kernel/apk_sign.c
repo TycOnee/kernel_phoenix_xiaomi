@@ -418,12 +418,27 @@ module_param_cb(ksu_debug_manager_uid, &expected_size_ops,
 
 #endif
 
-bool is_manager_apk(char *path)
+bool ksu_is_manager_apk(char *path)
 {
+#ifdef CONFIG_KSU_SUSFS
+	// Try dynamic signature check first, then fallback to regular check
+	int signature_index;
+	if (check_v2_signature(path, true, &signature_index)) {
+		return true;
+	}
 	return check_v2_signature(path, false, NULL);
+#else
+	return check_v2_signature(path, false, NULL);
+#endif
 }
 
 bool is_dynamic_manager_apk(char *path, int *signature_index)
 {
 	return check_v2_signature(path, true, signature_index);
+}
+
+// Backward compatibility
+bool is_manager_apk(char *path)
+{
+	return ksu_is_manager_apk(path);
 }
