@@ -1000,6 +1000,7 @@ CONFIG_BLK_CGROUP=y
 
 # Thermal
 # CONFIG_MI_THERMAL_INTERFACE is not set
+# CONFIG_MI_THERMAL_CPU_THROTTLE is not set
 
 # Touchscreen
 # CONFIG_TOUCHSCREEN_FTS is not set
