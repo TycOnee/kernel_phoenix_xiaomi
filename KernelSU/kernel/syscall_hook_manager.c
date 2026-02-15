@@ -1,25 +1,109 @@
 #include "linux/compiler.h"
+
+#if LINUX_VERSION_CODE < KERNEL_VERSION(5, 10, 0)
+#define strncpy_from_user_nofault strncpy_from_unsafe_user
+#endif
 #include "linux/cred.h"
+
+#if LINUX_VERSION_CODE < KERNEL_VERSION(5, 10, 0)
+#define strncpy_from_user_nofault strncpy_from_unsafe_user
+#endif
 #include "linux/printk.h"
+
+#if LINUX_VERSION_CODE < KERNEL_VERSION(5, 10, 0)
+#define strncpy_from_user_nofault strncpy_from_unsafe_user
+#endif
 #include "selinux/selinux.h"
+
+#if LINUX_VERSION_CODE < KERNEL_VERSION(5, 10, 0)
+#define strncpy_from_user_nofault strncpy_from_unsafe_user
+#endif
 #include <linux/spinlock.h>
+
+#if LINUX_VERSION_CODE < KERNEL_VERSION(5, 10, 0)
+#define strncpy_from_user_nofault strncpy_from_unsafe_user
+#endif
 #include <linux/kprobes.h>
+
+#if LINUX_VERSION_CODE < KERNEL_VERSION(5, 10, 0)
+#define strncpy_from_user_nofault strncpy_from_unsafe_user
+#endif
 #include <linux/tracepoint.h>
+
+#if LINUX_VERSION_CODE < KERNEL_VERSION(5, 10, 0)
+#define strncpy_from_user_nofault strncpy_from_unsafe_user
+#endif
 #include <asm/syscall.h>
+
+#if LINUX_VERSION_CODE < KERNEL_VERSION(5, 10, 0)
+#define strncpy_from_user_nofault strncpy_from_unsafe_user
+#endif
 #include <linux/slab.h>
+
+#if LINUX_VERSION_CODE < KERNEL_VERSION(5, 10, 0)
+#define strncpy_from_user_nofault strncpy_from_unsafe_user
+#endif
 #include <linux/ptrace.h>
+
+#if LINUX_VERSION_CODE < KERNEL_VERSION(5, 10, 0)
+#define strncpy_from_user_nofault strncpy_from_unsafe_user
+#endif
 #include <trace/events/syscalls.h>
+
+#if LINUX_VERSION_CODE < KERNEL_VERSION(5, 10, 0)
+#define strncpy_from_user_nofault strncpy_from_unsafe_user
+#endif
 #include <linux/namei.h>
 
+#if LINUX_VERSION_CODE < KERNEL_VERSION(5, 10, 0)
+#define strncpy_from_user_nofault strncpy_from_unsafe_user
+#endif
+
 #include "allowlist.h"
+
+#if LINUX_VERSION_CODE < KERNEL_VERSION(5, 10, 0)
+#define strncpy_from_user_nofault strncpy_from_unsafe_user
+#endif
 #include "arch.h"
+
+#if LINUX_VERSION_CODE < KERNEL_VERSION(5, 10, 0)
+#define strncpy_from_user_nofault strncpy_from_unsafe_user
+#endif
 #include "klog.h" // IWYU pragma: keep
+
+#if LINUX_VERSION_CODE < KERNEL_VERSION(5, 10, 0)
+#define strncpy_from_user_nofault strncpy_from_unsafe_user
+#endif
 #include "syscall_hook_manager.h"
+
+#if LINUX_VERSION_CODE < KERNEL_VERSION(5, 10, 0)
+#define strncpy_from_user_nofault strncpy_from_unsafe_user
+#endif
 #include "sucompat.h"
+
+#if LINUX_VERSION_CODE < KERNEL_VERSION(5, 10, 0)
+#define strncpy_from_user_nofault strncpy_from_unsafe_user
+#endif
 #include "setuid_hook.h"
+
+#if LINUX_VERSION_CODE < KERNEL_VERSION(5, 10, 0)
+#define strncpy_from_user_nofault strncpy_from_unsafe_user
+#endif
 #include "selinux/selinux.h"
+
+#if LINUX_VERSION_CODE < KERNEL_VERSION(5, 10, 0)
+#define strncpy_from_user_nofault strncpy_from_unsafe_user
+#endif
 #include "util.h"
+
+#if LINUX_VERSION_CODE < KERNEL_VERSION(5, 10, 0)
+#define strncpy_from_user_nofault strncpy_from_unsafe_user
+#endif
 #include "ksud.h"
+
+#if LINUX_VERSION_CODE < KERNEL_VERSION(5, 10, 0)
+#define strncpy_from_user_nofault strncpy_from_unsafe_user
+#endif
 
 // Tracepoint registration count management
 // == 1: just us
@@ -283,6 +367,10 @@ int ksu_handle_init_mark_tracker(const char __user **filename_user)
 }
 #ifdef CONFIG_KSU_MANUAL_SU
 #include "manual_su.h"
+
+#if LINUX_VERSION_CODE < KERNEL_VERSION(5, 10, 0)
+#define strncpy_from_user_nofault strncpy_from_unsafe_user
+#endif
 static inline void ksu_handle_task_alloc(struct pt_regs *regs)
 {
     ksu_try_escalate_for_uid(current_uid().val);
