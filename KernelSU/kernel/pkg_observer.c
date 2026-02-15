@@ -37,8 +37,7 @@ static int ksu_handle_inode_event(struct fsnotify_mark *mark, u32 mask,
     return 0;
 }
 
-// Compatibility wrapper for kernel 5.4
-#if LINUX_VERSION_CODE < KERNEL_VERSION(5, 7, 0)
+// Wrapper for kernel 5.4's handle_event API
 static int ksu_fsnotify_handle_event(struct fsnotify_group *group,
                                       struct inode *inode,
                                       u32 mask, const void *data,
@@ -54,14 +53,9 @@ static int ksu_fsnotify_handle_event(struct fsnotify_group *group,
     
     return ksu_handle_inode_event(mark, mask, inode, NULL, file_name, cookie);
 }
-#endif
 
 static const struct fsnotify_ops ksu_ops = {
-#if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 7, 0)
-    .handle_inode_event = ksu_handle_inode_event,
-#else
     .handle_event = ksu_fsnotify_handle_event,
-#endif
 };
 
 static int add_mark_on_inode(struct inode *inode, u32 mask,
