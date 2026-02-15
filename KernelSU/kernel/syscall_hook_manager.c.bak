@@ -1,4 +1,3 @@
-#include <linux/version.h>
 #include "linux/compiler.h"
 #include "linux/cred.h"
 #include "linux/printk.h"
@@ -21,11 +20,6 @@
 #include "selinux/selinux.h"
 #include "util.h"
 #include "ksud.h"
-
-// Compatibility macro for kernel 5.4
-#if LINUX_VERSION_CODE < KERNEL_VERSION(5, 10, 0)
-#define strncpy_from_user_nofault strncpy_from_unsafe_user
-#endif
 
 // Tracepoint registration count management
 // == 1: just us
