@@ -1,14 +1,11 @@
 package com.sukisu.ultra.ui.viewmodel
 
 import android.util.Log
-import androidx.compose.runtime.State
-import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.sukisu.ultra.ui.component.SearchStatus
 import com.sukisu.ultra.ui.util.*
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -19,25 +16,11 @@ import kotlinx.coroutines.withContext
  * @date 2025/5/31.
  */
 class KpmViewModel : ViewModel() {
-    private var _moduleList by mutableStateOf(emptyList<ModuleInfo>())
-    
-    val moduleList by derivedStateOf {
-        val searchText = _searchStatus.value.searchText
-        if (searchText.isEmpty()) {
-            _moduleList
-        } else {
-            _moduleList.filter {
-                it.id.contains(searchText, true) ||
-                it.name.contains(searchText, true) ||
-                it.description.contains(searchText, true) ||
-                it.author.contains(searchText, true) ||
-                it.version.contains(searchText, true)
-            }
-        }
-    }
+    var moduleList by mutableStateOf(emptyList<ModuleInfo>())
+        private set
 
-    private val _searchStatus = mutableStateOf(SearchStatus(""))
-    val searchStatus: State<SearchStatus> = _searchStatus
+    var search by mutableStateOf("")
+        internal set
 
     var isRefreshing by mutableStateOf(false)
         private set
@@ -52,7 +35,7 @@ class KpmViewModel : ViewModel() {
                 val moduleCount = getKpmModuleCount()
                 Log.d("KsuCli", "Module count: $moduleCount")
 
-                _moduleList = getAllKpmModuleInfo()
+                moduleList = getAllKpmModuleInfo()
 
                 // 获取 KPM 版本信息
                 val kpmVersion = getKpmVersion()
@@ -162,10 +145,6 @@ class KpmViewModel : ViewModel() {
         val result = controlKpmModule(moduleId, inputArgs)
         hideInputDialog()
         return result
-    }
-
-    fun updateSearchText(text: String) {
-        _searchStatus.value.searchText = text
     }
 
     data class ModuleInfo(

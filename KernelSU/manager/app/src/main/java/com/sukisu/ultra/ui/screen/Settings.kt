@@ -1,421 +1,212 @@
 package com.sukisu.ultra.ui.screen
 
 import android.content.Context
-import android.os.Build
-import androidx.activity.compose.LocalActivity
-import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.WindowInsets
-import androidx.compose.foundation.layout.WindowInsetsSides
-import androidx.compose.foundation.layout.add
-import androidx.compose.foundation.layout.displayCutout
-import androidx.compose.foundation.layout.fillMaxHeight
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.only
-import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.systemBars
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.material.icons.rounded.Palette
+import android.content.Intent
+import android.content.SharedPreferences
+import android.net.Uri
+import android.widget.Toast
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.*
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.rounded.Article
-import androidx.compose.material.icons.rounded.Adb
-import androidx.compose.material.icons.rounded.AspectRatio
-import androidx.compose.material.icons.rounded.BugReport
-import androidx.compose.material.icons.rounded.Code
-import androidx.compose.material.icons.rounded.ContactPage
-import androidx.compose.material.icons.rounded.Delete
-import androidx.compose.material.icons.rounded.DeleteForever
-import androidx.compose.material.icons.rounded.DeveloperMode
-import androidx.compose.material.icons.rounded.Fence
+import androidx.compose.material.icons.automirrored.filled.Undo
+import androidx.compose.material.icons.filled.*
+import androidx.compose.material.icons.rounded.EnhancedEncryption
 import androidx.compose.material.icons.rounded.FolderDelete
 import androidx.compose.material.icons.rounded.RemoveCircle
 import androidx.compose.material.icons.rounded.RemoveModerator
-import androidx.compose.material.icons.rounded.RestartAlt
-import androidx.compose.material.icons.rounded.Settings
-import androidx.compose.material.icons.rounded.Update
-import androidx.compose.material.icons.rounded.UploadFile
-import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableFloatStateOf
-import androidx.compose.runtime.mutableIntStateOf
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.produceState
-import androidx.compose.runtime.remember
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
-import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import androidx.core.content.FileProvider
 import androidx.core.content.edit
-import dev.chrisbanes.haze.HazeState
-import dev.chrisbanes.haze.HazeStyle
-import dev.chrisbanes.haze.HazeTint
-import dev.chrisbanes.haze.hazeEffect
-import dev.chrisbanes.haze.hazeSource
-import com.sukisu.ultra.KernelSUApplication
+import com.maxkeppeker.sheets.core.models.base.IconSource
+import com.maxkeppeler.sheets.list.models.ListOption
+import com.ramcosta.composedestinations.annotation.Destination
+import com.ramcosta.composedestinations.annotation.RootGraph
+import com.ramcosta.composedestinations.generated.destinations.AppProfileTemplateScreenDestination
+import com.ramcosta.composedestinations.generated.destinations.FlashScreenDestination
+import com.ramcosta.composedestinations.generated.destinations.LogViewerScreenDestination
+import com.ramcosta.composedestinations.generated.destinations.UmountManagerScreenDestination
+import com.ramcosta.composedestinations.generated.destinations.MoreSettingsScreenDestination
+import com.ramcosta.composedestinations.navigation.DestinationsNavigator
+import com.sukisu.ultra.BuildConfig
 import com.sukisu.ultra.Natives
 import com.sukisu.ultra.R
-import com.sukisu.ultra.ui.component.KsuIsValid
-import com.sukisu.ultra.ui.component.ScaleDialog
-import com.sukisu.ultra.ui.component.SendLogDialog
-import com.sukisu.ultra.ui.component.UninstallDialog
-import com.sukisu.ultra.ui.component.rememberLoadingDialog
-import com.sukisu.ultra.ui.navigation3.Navigator
-import com.sukisu.ultra.ui.navigation3.Route
-import com.sukisu.ultra.ui.util.execKsud
-import com.sukisu.ultra.ui.util.getFeatureStatus
-import com.sukisu.ultra.ui.util.rememberKpmAvailable
-import com.sukisu.ultra.ui.util.getFeaturePersistValue
-import com.sukisu.ultra.ui.util.getSuSFSStatus
-import top.yukonga.miuix.kmp.basic.Card
-import top.yukonga.miuix.kmp.basic.Icon
-import top.yukonga.miuix.kmp.basic.MiuixScrollBehavior
-import top.yukonga.miuix.kmp.basic.Scaffold
-import top.yukonga.miuix.kmp.basic.Slider
-import top.yukonga.miuix.kmp.basic.SliderDefaults
-import top.yukonga.miuix.kmp.basic.Text
-import top.yukonga.miuix.kmp.basic.TopAppBar
-import top.yukonga.miuix.kmp.extra.SuperArrow
-import top.yukonga.miuix.kmp.extra.SuperDropdown
-import top.yukonga.miuix.kmp.extra.SuperSwitch
-import top.yukonga.miuix.kmp.theme.MiuixTheme.colorScheme
-import top.yukonga.miuix.kmp.utils.overScrollVertical
-import top.yukonga.miuix.kmp.utils.scrollEndHaptic
+import com.sukisu.ultra.ui.component.*
+import com.sukisu.ultra.ui.theme.CardConfig
+import com.sukisu.ultra.ui.theme.CardConfig.cardAlpha
+import com.sukisu.ultra.ui.theme.getCardColors
+import com.sukisu.ultra.ui.theme.getCardElevation
+import com.sukisu.ultra.ui.util.*
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import java.time.LocalDateTime
+import java.time.format.DateTimeFormatter
 
 /**
- * @author weishu
- * @date 2023/1/1.
+ * @author ShirkNeko
+ * @date 2025/9/29.
  */
-@Composable
-fun SettingPager(
-    navigator: Navigator,
-    bottomInnerPadding: Dp
-) {
-    val scrollBehavior = MiuixScrollBehavior()
-    val hazeState = remember { HazeState() }
-    val hazeStyle = HazeStyle(
-        backgroundColor = colorScheme.surface,
-        tint = HazeTint(colorScheme.surface.copy(0.8f))
-    )
+private val SPACING_SMALL = 3.dp
+private val SPACING_MEDIUM = 8.dp
+private val SPACING_LARGE = 16.dp
 
-    val isKpmAvailable = rememberKpmAvailable()
+@OptIn(ExperimentalMaterial3Api::class)
+@Destination<RootGraph>
+@Composable
+fun SettingScreen(navigator: DestinationsNavigator) {
+    val scrollBehavior = TopAppBarDefaults.pinnedScrollBehavior(rememberTopAppBarState())
+    val snackBarHost = LocalSnackbarHost.current
+    val context = LocalContext.current
+    val prefs = context.getSharedPreferences("settings", Context.MODE_PRIVATE)
+    var isSuLogEnabled by remember { mutableStateOf(Natives.isSuLogEnabled()) }
+    var selectedEngine by rememberSaveable {
+        mutableStateOf(
+            prefs.getString("webui_engine", "default") ?: "default"
+        )
+    }
 
     Scaffold(
         topBar = {
-            TopAppBar(
-                modifier = Modifier.hazeEffect(hazeState) {
-                    style = hazeStyle
-                    blurRadius = 30.dp
-                    noiseFactor = 0f
-                },
-                color = Color.Transparent,
-                title = stringResource(R.string.settings),
-                scrollBehavior = scrollBehavior
-            )
+            TopBar(scrollBehavior = scrollBehavior)
         },
-        popupHost = { },
-        contentWindowInsets = WindowInsets.systemBars.add(WindowInsets.displayCutout).only(WindowInsetsSides.Horizontal)
-    ) { innerPadding ->
-        val context = LocalContext.current
-        val activity = LocalActivity.current
-        val prefs = context.getSharedPreferences("settings", Context.MODE_PRIVATE)
-
+        snackbarHost = { SnackbarHost(snackBarHost) },
+        contentWindowInsets = WindowInsets.safeDrawing.only(WindowInsetsSides.Top + WindowInsetsSides.Horizontal)
+    ) { paddingValues ->
+        val aboutDialog = rememberCustomDialog {
+            AboutDialog(it)
+        }
         val loadingDialog = rememberLoadingDialog()
-        val showScaleDialog = rememberSaveable { mutableStateOf(false) }
-        val showUninstallDialog = rememberSaveable { mutableStateOf(false) }
-        val showSendLogDialog = rememberSaveable { mutableStateOf(false) }
 
-        LazyColumn(
+        Column(
             modifier = Modifier
-                .fillMaxHeight()
-                .scrollEndHaptic()
-                .overScrollVertical()
+                .padding(paddingValues)
                 .nestedScroll(scrollBehavior.nestedScrollConnection)
-                .hazeSource(state = hazeState)
-                .padding(horizontal = 12.dp),
-            contentPadding = innerPadding,
-            overscrollEffect = null,
+                .verticalScroll(rememberScrollState())
         ) {
-            item {
-                var checkUpdate by rememberSaveable {
-                    mutableStateOf(prefs.getBoolean("check_update", true))
-                }
-
-                Card(
-                    modifier = Modifier
-                        .padding(top = 12.dp)
-                        .fillMaxWidth(),
-                ) {
-                    SuperSwitch(
-                        title = stringResource(id = R.string.settings_check_update),
-                        summary = stringResource(id = R.string.settings_check_update_summary),
-                        startAction = {
-                            Icon(
-                                Icons.Rounded.Update,
-                                modifier = Modifier.padding(end = 16.dp),
-                                contentDescription = stringResource(id = R.string.settings_check_update),
-                                tint = colorScheme.onBackground
-                            )
-                        },
-                        checked = checkUpdate,
-                        onCheckedChange = {
-                            prefs.edit {
-                                putBoolean("check_update", it)
-                            }
-                            checkUpdate = it
+            val context = LocalContext.current
+            val scope = rememberCoroutineScope()
+            val exportBugreportLauncher = rememberLauncherForActivityResult(
+                ActivityResultContracts.CreateDocument("application/gzip")
+            ) { uri: Uri? ->
+                if (uri == null) return@rememberLauncherForActivityResult
+                scope.launch(Dispatchers.IO) {
+                    loadingDialog.show()
+                    context.contentResolver.openOutputStream(uri)?.use { output ->
+                        getBugreportFile(context).inputStream().use {
+                            it.copyTo(output)
                         }
-                    )
-                    KsuIsValid {
-                        var checkModuleUpdate by rememberSaveable {
-                            mutableStateOf(prefs.getBoolean("module_check_update", true))
-                        }
-                        SuperSwitch(
-                            title = stringResource(id = R.string.settings_module_check_update),
-                            summary = stringResource(id = R.string.settings_check_update_summary),
-                            startAction = {
-                                Icon(
-                                    Icons.Rounded.UploadFile,
-                                    modifier = Modifier.padding(end = 16.dp),
-                                    contentDescription = stringResource(id = R.string.settings_check_update),
-                                    tint = colorScheme.onBackground
-                                )
-                            },
-                            checked = checkModuleUpdate,
-                            onCheckedChange = {
-                                prefs.edit {
-                                    putBoolean("module_check_update", it)
-                                }
-                                checkModuleUpdate = it
-                            }
-                        )
                     }
+                    loadingDialog.hide()
+                    snackBarHost.showSnackbar(context.getString(R.string.log_saved))
                 }
+            }
 
-                Card(
-                    modifier = Modifier
-                        .padding(top = 12.dp)
-                        .fillMaxWidth(),
-                ) {
-                    val personalization = stringResource(id = R.string.personalization)
-                    SuperArrow(
-                        title = personalization,
-                        summary = stringResource(id = R.string.personalization_summary),
-                        startAction = {
-                            Icon(
-                                Icons.Rounded.Palette,
-                                modifier = Modifier.padding(end = 16.dp),
-                                contentDescription = personalization,
-                                tint = colorScheme.onBackground
-                            )
-                        },
-                        onClick = {
-                            navigator.push(Route.Personalization)
-                        }
-                    )
-                }
-
-                KsuIsValid {
-                    val toolsTitle = stringResource(id = R.string.settings_tools)
-                    Card(
-                        modifier = Modifier
-                            .padding(top = 12.dp)
-                            .fillMaxWidth(),
-                    ) {
-                        SuperArrow(
-                            title = toolsTitle,
-                            summary = stringResource(id = R.string.settings_tools_summary),
-                            startAction = {
-                                Icon(
-                                    Icons.Rounded.DeveloperMode,
-                                    modifier = Modifier.padding(end = 16.dp),
-                                    contentDescription = toolsTitle,
-                                    tint = colorScheme.onBackground
-                                )
-                            },
+            // 配置卡片
+            KsuIsValid {
+                SettingsGroupCard(
+                    title = stringResource(R.string.configuration),
+                    content = {
+                        // 配置文件模板入口
+                        SettingItem(
+                            icon = Icons.Filled.Fence,
+                            title = stringResource(R.string.settings_profile_template),
+                            summary = stringResource(R.string.settings_profile_template_summary),
                             onClick = {
-                                navigator.push(Route.Tool)
+                                navigator.navigate(AppProfileTemplateScreenDestination)
                             }
                         )
-                    }
 
-                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
-                        var enablePredictiveBack by rememberSaveable {
-                            mutableStateOf(prefs.getBoolean("enable_predictive_back", false))
-                        }
-                        SuperSwitch(
-                            title = stringResource(id = R.string.settings_enable_predictive_back),
-                            summary = stringResource(id = R.string.settings_enable_predictive_back_summary),
-                            startAction = {
-                                Icon(
-                                    Icons.Rounded.Adb,
-                                    modifier = Modifier.padding(end = 16.dp),
-                                    contentDescription = stringResource(id = R.string.settings_enable_predictive_back),
-                                    tint = colorScheme.onBackground
-                                )
-                            },
-                            checked = enablePredictiveBack,
-                            onCheckedChange = {
-                                prefs.edit { putBoolean("enable_predictive_back", it) }
-                                enablePredictiveBack = it
-                                KernelSUApplication.setEnableOnBackInvokedCallback(context.applicationInfo, it)
-                                activity?.recreate()
-                            }
+                        val modeItems = listOf(
+                            stringResource(id = R.string.settings_mode_default),
+                            stringResource(id = R.string.settings_mode_temp_enable),
+                            stringResource(id = R.string.settings_mode_always_enable),
                         )
-                    }
-                    var pageScale by rememberSaveable {
-                        mutableFloatStateOf(prefs.getFloat("page_scale", 1.0f))
-                    }
-                    SuperArrow(
-                        title = stringResource(id = R.string.settings_page_scale),
-                        summary = stringResource(id = R.string.settings_page_scale_summary),
-                        startAction = {
-                            Icon(
-                                Icons.Rounded.AspectRatio,
-                                modifier = Modifier.padding(end = 16.dp),
-                                contentDescription = stringResource(id = R.string.settings_page_scale),
-                                tint = colorScheme.onBackground
-                            )
-                        },
-                        endActions = {
-                            Text(
-                                text = "${(pageScale * 100).toInt()}%",
-                                color = colorScheme.onSurfaceVariantActions,
-                            )
-                        },
-                        onClick = { showScaleDialog.value = !showScaleDialog.value },
-                        holdDownState = showScaleDialog.value,
-                        bottomAction = {
-                            Slider(
-                                value = pageScale,
-                                onValueChange = {
-                                    pageScale = it
-                                },
-                                onValueChangeFinished = {
-                                    prefs.edit { putFloat("page_scale", pageScale) }
-                                },
-                                valueRange = 0.8f..1.1f,
-                                showKeyPoints = true,
-                                keyPoints = listOf(0.8f, 0.9f, 1f, 1.1f),
-                                magnetThreshold = 0.01f,
-                                hapticEffect = SliderDefaults.SliderHapticEffect.Step,
-                            )
-                        },
-                    )
-                    ScaleDialog(
-                        showScaleDialog,
-                        volumeState = { pageScale },
-                        onVolumeChange = {
-                            pageScale = it
-                            prefs.edit { putFloat("page_scale", it) }
-                        }
-                    )
-                }
-
-                KsuIsValid {
-                    Card(
-                        modifier = Modifier
-                            .padding(top = 12.dp)
-                            .fillMaxWidth(),
-                    ) {
-                        val profileTemplate = stringResource(id = R.string.settings_profile_template)
-                        SuperArrow(
-                            title = profileTemplate,
-                            summary = stringResource(id = R.string.settings_profile_template_summary),
-                            startAction = {
-                                Icon(
-                                    Icons.Rounded.Fence,
-                                    modifier = Modifier.padding(end = 16.dp),
-                                    contentDescription = profileTemplate,
-                                    tint = colorScheme.onBackground
-                                )
-                            },
-                            onClick = {
-                                navigator.push(Route.AppProfileTemplate)
-                            }
-                        )
-                    }
-                }
-
-                if (isKpmAvailable) {
-                    Card(
-                        modifier = Modifier
-                            .padding(top = 12.dp)
-                            .fillMaxWidth(),
-                    ) {
-                        val kpmTitle = stringResource(id = R.string.kpm_title)
-                        SuperArrow(
-                            title = kpmTitle,
-                            summary = stringResource(id = R.string.settings_kpm_summary),
-                            startAction = {
-                                Icon(
-                                    Icons.Rounded.Code,
-                                    modifier = Modifier.padding(end = 16.dp),
-                                    contentDescription = kpmTitle,
-                                    tint = colorScheme.onBackground
-                                )
-                            },
-                            onClick = {
-                                navigator.push(Route.Kpm)
-                            }
-                        )
-                    }
-                }
-
-                KsuIsValid {
-                    val supported = getSuSFSStatus().equals("true", ignoreCase = true)
-                    if (supported) {
-                        Card(
-                            modifier = Modifier
-                                .padding(top = 12.dp)
-                                .fillMaxWidth(),
-                        ) {
-                            val susfsTitle = stringResource(id = R.string.susfs_config_title)
-                            SuperArrow(
-                                title = susfsTitle,
-                                summary = stringResource(id = R.string.susfs_config_summary),
-                                startAction = {
-                                    Icon(
-                                        Icons.Rounded.Settings,
-                                        modifier = Modifier.padding(end = 16.dp),
-                                        contentDescription = susfsTitle,
-                                        tint = colorScheme.onBackground
-                                    )
-                                },
-                                onClick = {
-                                    navigator.push(Route.SuSFS)
+                        var enhancedSecurityMode by rememberSaveable {
+                            mutableIntStateOf(
+                                run {
+                                    val currentEnabled = Natives.isEnhancedSecurityEnabled()
+                                    val savedPersist = prefs.getInt("enhanced_security_mode", 0)
+                                    if (savedPersist == 2) 2 else if (currentEnabled) 1 else 0
                                 }
                             )
                         }
-                    }
-                }
+                        val enhancedStatus by produceState(initialValue = "") {
+                            value = getFeatureStatus("enhanced_security")
+                        }
+                        val enhancedSummary = when (enhancedStatus) {
+                            "unsupported" -> stringResource(id = R.string.feature_status_unsupported_summary)
+                            "managed" -> stringResource(id = R.string.feature_status_managed_summary)
+                            else -> stringResource(id = R.string.settings_enable_enhanced_security_summary)
+                        }
+                        SuperDropdown(
+                            icon = Icons.Rounded.EnhancedEncryption,
+                            title = stringResource(id = R.string.settings_enable_enhanced_security),
+                            summary = enhancedSummary,
+                            items = modeItems,
+                            leftAction = {
+                                Icon(
+                                    Icons.Rounded.EnhancedEncryption,
+                                    modifier = Modifier.padding(end = 16.dp),
+                                    contentDescription = stringResource(id = R.string.settings_enable_enhanced_security),
+                                    tint = MaterialTheme.colorScheme.onBackground
+                                )
+                            },
+                            enabled = enhancedStatus == "supported",
+                            selectedIndex = enhancedSecurityMode,
+                            onSelectedIndexChange = { index ->
+                                when (index) {
+                                    // Default: disable and save to persist
+                                    0 -> if (Natives.setEnhancedSecurityEnabled(false)) {
+                                        execKsud("feature save", true)
+                                        prefs.edit { putInt("enhanced_security_mode", 0) }
+                                        enhancedSecurityMode = 0
+                                    }
 
-                KsuIsValid {
-                    Card(
-                        modifier = Modifier
-                            .padding(top = 12.dp)
-                            .fillMaxWidth()
-                    ) {
-                        val suCompatModeItems = listOf(
-                            stringResource(id = R.string.settings_mode_enable_by_default),
-                            stringResource(id = R.string.settings_mode_disable_until_reboot),
-                            stringResource(id = R.string.settings_mode_disable_always),
+                                    // Temporarily enable: save disabled state first, then enable
+                                    1 -> if (Natives.setEnhancedSecurityEnabled(false)) {
+                                        execKsud("feature save", true)
+                                        if (Natives.setEnhancedSecurityEnabled(true)) {
+                                            prefs.edit { putInt("enhanced_security_mode", 0) }
+                                            enhancedSecurityMode = 1
+                                        }
+                                    }
+
+                                    // Permanently enable: enable and save
+                                    2 -> if (Natives.setEnhancedSecurityEnabled(true)) {
+                                        execKsud("feature save", true)
+                                        prefs.edit { putInt("enhanced_security_mode", 2) }
+                                        enhancedSecurityMode = 2
+                                    }
+                                }
+                            }
                         )
 
-                        val currentSuEnabled = Natives.isSuEnabled()
-                        var suCompatMode by rememberSaveable { mutableIntStateOf(if (!currentSuEnabled) 1 else 0) }
-                        val suPersistValue by produceState(initialValue = null as Long?) {
-                            value = getFeaturePersistValue("su_compat")
-                        }
-                        LaunchedEffect(suPersistValue) {
-                            suPersistValue?.let { v ->
-                                suCompatMode = if (v == 0L) 2 else if (!currentSuEnabled) 1 else 0
-                            }
+                        var suCompatMode by rememberSaveable {
+                            mutableIntStateOf(
+                                run {
+                                    val currentEnabled = Natives.isSuEnabled()
+                                    val savedPersist = prefs.getInt("su_compat_mode", 0)
+                                    if (savedPersist == 2) 2 else if (!currentEnabled) 1 else 0
+                                }
+                            )
                         }
                         val suStatus by produceState(initialValue = "") {
                             value = getFeatureStatus("su_compat")
@@ -423,18 +214,19 @@ fun SettingPager(
                         val suSummary = when (suStatus) {
                             "unsupported" -> stringResource(id = R.string.feature_status_unsupported_summary)
                             "managed" -> stringResource(id = R.string.feature_status_managed_summary)
-                            else -> stringResource(id = R.string.settings_sucompat_summary)
+                            else -> stringResource(id = R.string.settings_disable_su_summary)
                         }
                         SuperDropdown(
-                            title = stringResource(id = R.string.settings_sucompat),
+                            icon = Icons.Rounded.RemoveModerator,
+                            title = stringResource(id = R.string.settings_disable_su),
                             summary = suSummary,
-                            items = suCompatModeItems,
-                            startAction = {
+                            items = modeItems,
+                            leftAction = {
                                 Icon(
                                     Icons.Rounded.RemoveModerator,
                                     modifier = Modifier.padding(end = 16.dp),
-                                    contentDescription = stringResource(id = R.string.settings_sucompat),
-                                    tint = colorScheme.onBackground
+                                    contentDescription = stringResource(id = R.string.settings_disable_su),
+                                    tint = MaterialTheme.colorScheme.onBackground
                                 )
                             },
                             enabled = suStatus == "supported",
@@ -467,48 +259,134 @@ fun SettingPager(
                             }
                         )
 
-                        var isKernelUmountEnabled by rememberSaveable { mutableStateOf(Natives.isKernelUmountEnabled()) }
+                        var kernelUmountMode by rememberSaveable {
+                            mutableIntStateOf(
+                                run {
+                                    val currentEnabled = Natives.isKernelUmountEnabled()
+                                    val savedPersist = prefs.getInt("kernel_umount_mode", 0)
+                                    if (savedPersist == 2) 2 else if (!currentEnabled) 1 else 0
+                                }
+                            )
+                        }
                         val umountStatus by produceState(initialValue = "") {
                             value = getFeatureStatus("kernel_umount")
                         }
                         val umountSummary = when (umountStatus) {
                             "unsupported" -> stringResource(id = R.string.feature_status_unsupported_summary)
                             "managed" -> stringResource(id = R.string.feature_status_managed_summary)
-                            else -> stringResource(id = R.string.settings_kernel_umount_summary)
+                            else -> stringResource(id = R.string.settings_disable_kernel_umount_summary)
                         }
-                        SuperSwitch(
-                            title = stringResource(id = R.string.settings_kernel_umount),
+                        SuperDropdown(
+                            icon = Icons.Rounded.RemoveCircle,
+                            title = stringResource(id = R.string.settings_disable_kernel_umount),
                             summary = umountSummary,
-                            startAction = {
+                            items = modeItems,
+                            leftAction = {
                                 Icon(
                                     Icons.Rounded.RemoveCircle,
                                     modifier = Modifier.padding(end = 16.dp),
-                                    contentDescription = stringResource(id = R.string.settings_kernel_umount),
-                                    tint = colorScheme.onBackground
+                                    contentDescription = stringResource(id = R.string.settings_disable_kernel_umount),
+                                    tint = MaterialTheme.colorScheme.onBackground
                                 )
                             },
                             enabled = umountStatus == "supported",
-                            checked = isKernelUmountEnabled,
-                            onCheckedChange = { checked ->
-                                if (Natives.setKernelUmountEnabled(checked)) {
-                                    execKsud("feature save", true)
-                                    isKernelUmountEnabled = checked
+                            selectedIndex = kernelUmountMode,
+                            onSelectedIndexChange = { index ->
+                                when (index) {
+                                    // Default: enable and save to persist
+                                    0 -> if (Natives.setKernelUmountEnabled(true)) {
+                                        execKsud("feature save", true)
+                                        prefs.edit { putInt("kernel_umount_mode", 0) }
+                                        kernelUmountMode = 0
+                                    }
+
+                                    // Temporarily disable: save enabled state first, then disable
+                                    1 -> if (Natives.setKernelUmountEnabled(true)) {
+                                        execKsud("feature save", true)
+                                        if (Natives.setKernelUmountEnabled(false)) {
+                                            prefs.edit { putInt("kernel_umount_mode", 0) }
+                                            kernelUmountMode = 1
+                                        }
+                                    }
+
+                                    // Permanently disable: disable and save
+                                    2 -> if (Natives.setKernelUmountEnabled(false)) {
+                                        execKsud("feature save", true)
+                                        prefs.edit { putInt("kernel_umount_mode", 2) }
+                                        kernelUmountMode = 2
+                                    }
                                 }
                             }
                         )
 
-                        var umountChecked by rememberSaveable { mutableStateOf(Natives.isDefaultUmountModules()) }
-                        SuperSwitch(
-                            title = stringResource(id = R.string.settings_umount_modules_default),
-                            summary = stringResource(id = R.string.settings_umount_modules_default_summary),
-                            startAction = {
+                        var suLogMode by rememberSaveable {
+                            mutableIntStateOf(
+                                run {
+                                    val currentEnabled = Natives.isSuLogEnabled()
+                                    val savedPersist = prefs.getInt("sulog_mode", 0)
+                                    if (savedPersist == 2) 2 else if (!currentEnabled) 1 else 0
+                                }
+                            )
+                        }
+                        val suLogStatus by produceState(initialValue = "") {
+                            value = getFeatureStatus("sulog")
+                        }
+                        val suLogSummary = when (suLogStatus) {
+                            "unsupported" -> stringResource(id = R.string.feature_status_unsupported_summary)
+                            "managed" -> stringResource(id = R.string.feature_status_managed_summary)
+                            else -> stringResource(id = R.string.settings_disable_sulog_summary)
+                        }
+                        SuperDropdown(
+                            title = stringResource(id = R.string.settings_disable_sulog),
+                            summary = suLogSummary,
+                            items = modeItems,
+                            leftAction = {
                                 Icon(
-                                    Icons.Rounded.FolderDelete,
+                                    Icons.Rounded.RemoveCircle,
                                     modifier = Modifier.padding(end = 16.dp),
-                                    contentDescription = stringResource(id = R.string.settings_umount_modules_default),
-                                    tint = colorScheme.onBackground
+                                    contentDescription = stringResource(id = R.string.settings_disable_sulog),
+                                    tint = MaterialTheme.colorScheme.onBackground
                                 )
                             },
+                            enabled = suLogStatus == "supported",
+                            selectedIndex = suLogMode,
+                            onSelectedIndexChange = { index ->
+                                when (index) {
+                                    // Default: enable and save to persist
+                                    0 -> if (Natives.setSuLogEnabled(true)) {
+                                        execKsud("feature save", true)
+                                        prefs.edit { putInt("sulog_mode", 0) }
+                                        suLogMode = 0
+                                        isSuLogEnabled = true
+                                    }
+
+                                    // Temporarily disable: save enabled state first, then disable
+                                    1 -> if (Natives.setSuLogEnabled(true)) {
+                                        execKsud("feature save", true)
+                                        if (Natives.setSuLogEnabled(false)) {
+                                            prefs.edit { putInt("sulog_mode", 0) }
+                                            suLogMode = 1
+                                            isSuLogEnabled = false
+                                        }
+                                    }
+
+                                    // Permanently disable: disable and save
+                                    2 -> if (Natives.setSuLogEnabled(false)) {
+                                        execKsud("feature save", true)
+                                        prefs.edit { putInt("sulog_mode", 2) }
+                                        suLogMode = 2
+                                        isSuLogEnabled = false
+                                    }
+                                }
+                            }
+                        )
+
+                        // 卸载模块开关
+                        var umountChecked by rememberSaveable { mutableStateOf(Natives.isDefaultUmountModules()) }
+                        SwitchItem(
+                            icon = Icons.Rounded.FolderDelete,
+                            title = stringResource(id = R.string.settings_umount_modules_default),
+                            summary = stringResource(id = R.string.settings_umount_modules_default_summary),
                             checked = umountChecked,
                             onCheckedChange = {
                                 if (Natives.setDefaultUmountModules(it)) {
@@ -516,130 +394,655 @@ fun SettingPager(
                                 }
                             }
                         )
+                    }
+                )
+            }
 
-                        var enableWebDebugging by rememberSaveable {
-                            mutableStateOf(prefs.getBoolean("enable_web_debugging", false))
+            // 应用设置卡片
+            SettingsGroupCard(
+                title = stringResource(R.string.app_settings),
+                content = {
+                    // 更新检查开关
+                    var checkUpdate by rememberSaveable {
+                        mutableStateOf(prefs.getBoolean("check_update", true))
+                    }
+                    SwitchItem(
+                        icon = Icons.Filled.Update,
+                        title = stringResource(R.string.settings_check_update),
+                        summary = stringResource(R.string.settings_check_update_summary),
+                        checked = checkUpdate,
+                        onCheckedChange = { enabled ->
+                            prefs.edit { putBoolean("check_update", enabled) }
+                            checkUpdate = enabled
                         }
-                        SuperSwitch(
-                            title = stringResource(id = R.string.enable_web_debugging),
-                            summary = stringResource(id = R.string.enable_web_debugging_summary),
-                            startAction = {
-                                Icon(
-                                    Icons.Rounded.DeveloperMode,
-                                    modifier = Modifier.padding(end = 16.dp),
-                                    contentDescription = stringResource(id = R.string.enable_web_debugging),
-                                    tint = colorScheme.onBackground
-                                )
-                            },
-                            checked = enableWebDebugging,
-                            onCheckedChange = {
-                                prefs.edit { putBoolean("enable_web_debugging", it) }
-                                enableWebDebugging = it
+                    )
+
+                    // WebUI引擎选择
+                    KsuIsValid {
+                        WebUIEngineSelector(
+                            selectedEngine = selectedEngine,
+                            onEngineSelected = { engine ->
+                                selectedEngine = engine
+                                prefs.edit { putString("webui_engine", engine) }
                             }
                         )
                     }
-                }
 
-                KsuIsValid {
-                    val lkmMode = Natives.isLkmMode
-                    if (lkmMode) {
-                        Card(
-                            modifier = Modifier
-                                .padding(top = 12.dp)
-                                .fillMaxWidth(),
+                    // Web调试和Web X Eruda 开关
+                    var enableWebDebugging by rememberSaveable {
+                        mutableStateOf(prefs.getBoolean("enable_web_debugging", false))
+                    }
+                    var useWebUIXEruda by rememberSaveable {
+                        mutableStateOf(prefs.getBoolean("use_webuix_eruda", false))
+                    }
+
+                    KsuIsValid {
+                        SwitchItem(
+                            icon = Icons.Filled.DeveloperMode,
+                            title = stringResource(R.string.enable_web_debugging),
+                            summary = stringResource(R.string.enable_web_debugging_summary),
+                            checked = enableWebDebugging,
+                            onCheckedChange = { enabled ->
+                                prefs.edit { putBoolean("enable_web_debugging", enabled) }
+                                enableWebDebugging = enabled
+                            }
+                        )
+
+                        AnimatedVisibility(
+                            visible = enableWebDebugging && selectedEngine == "wx",
+                            enter = fadeIn() + expandVertically(),
+                            exit = fadeOut() + shrinkVertically()
                         ) {
-                            val uninstall = stringResource(id = R.string.settings_uninstall)
-                            SuperArrow(
-                                title = uninstall,
-                                startAction = {
-                                    Icon(
-                                        Icons.Rounded.Delete,
-                                        modifier = Modifier.padding(end = 16.dp),
-                                        contentDescription = uninstall,
-                                        tint = colorScheme.onBackground,
-                                    )
-                                },
-                                onClick = {
-                                    showUninstallDialog.value = true
+                            SwitchItem(
+                                icon = Icons.Filled.FormatListNumbered,
+                                title = stringResource(R.string.use_webuix_eruda),
+                                summary = stringResource(R.string.use_webuix_eruda_summary),
+                                checked = useWebUIXEruda,
+                                onCheckedChange = { enabled ->
+                                    prefs.edit { putBoolean("use_webuix_eruda", enabled) }
+                                    useWebUIXEruda = enabled
                                 }
                             )
-                            UninstallDialog(showUninstallDialog, navigator)
+                        }
+                    }
+
+                    // 更多设置
+                    SettingItem(
+                        icon = Icons.Filled.Settings,
+                        title = stringResource(R.string.more_settings),
+                        summary = stringResource(R.string.more_settings),
+                        onClick = {
+                            navigator.navigate(MoreSettingsScreenDestination)
+                        }
+                    )
+                }
+            )
+
+            // 工具卡片
+            SettingsGroupCard(
+                title = stringResource(R.string.tools),
+                content = {
+                    var showBottomsheet by remember { mutableStateOf(false) }
+
+                    SettingItem(
+                        icon = Icons.Filled.BugReport,
+                        title = stringResource(R.string.send_log),
+                        onClick = {
+                            showBottomsheet = true
+                        }
+                    )
+
+                    // 查看使用日志
+                    KsuIsValid {
+                        if (isSuLogEnabled) {
+                            SettingItem(
+                                icon = Icons.Filled.Visibility,
+                                title = stringResource(R.string.log_viewer_view_logs),
+                                summary = stringResource(R.string.log_viewer_view_logs_summary),
+                                onClick = {
+                                    navigator.navigate(LogViewerScreenDestination)
+                                }
+                            )
+                        }
+                    }
+                    KsuIsValid {
+                        SettingItem(
+                            icon = Icons.Filled.FolderOff,
+                            title = stringResource(R.string.umount_path_manager),
+                            summary = stringResource(R.string.umount_path_manager_summary),
+                            onClick = {
+                                navigator.navigate(UmountManagerScreenDestination)
+                            }
+                        )
+                    }
+
+                    if (showBottomsheet) {
+                        LogBottomSheet(
+                            onDismiss = { showBottomsheet = false },
+                            onSaveLog = {
+                                val formatter = DateTimeFormatter.ofPattern("yyyy-MM-dd_HH_mm")
+                                val current = LocalDateTime.now().format(formatter)
+                                exportBugreportLauncher.launch("KernelSU_bugreport_${current}.tar.gz")
+                                showBottomsheet = false
+                            },
+                            onShareLog = {
+                                scope.launch {
+                                    val bugreport = loadingDialog.withLoading {
+                                        withContext(Dispatchers.IO) {
+                                            getBugreportFile(context)
+                                        }
+                                    }
+
+                                    val uri = FileProvider.getUriForFile(
+                                        context,
+                                        "${BuildConfig.APPLICATION_ID}.fileprovider",
+                                        bugreport
+                                    )
+
+                                    val shareIntent = Intent(Intent.ACTION_SEND).apply {
+                                        putExtra(Intent.EXTRA_STREAM, uri)
+                                        setDataAndType(uri, "application/gzip")
+                                        addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                                    }
+
+                                    context.startActivity(
+                                        Intent.createChooser(
+                                            shareIntent,
+                                            context.getString(R.string.send_log)
+                                        )
+                                    )
+
+                                    showBottomsheet = false
+                                }
+                            }
+                        )
+                    }
+                    if (Natives.isLkmMode) {
+                        UninstallItem(navigator) {
+                            loadingDialog.withLoading(it)
                         }
                     }
                 }
+            )
 
-                Card(
-                    modifier = Modifier
-                        .padding(vertical = 12.dp)
-                        .fillMaxWidth(),
-                ) {
-                    SuperArrow(
-                        title = stringResource(id = R.string.settings_view_sulog),
-                        summary = stringResource(id = R.string.settings_view_sulog_summary),
-                        startAction = {
-                            Icon(
-                                Icons.AutoMirrored.Rounded.Article,
-                                modifier = Modifier.padding(end = 16.dp),
-                                contentDescription = stringResource(id = R.string.settings_view_sulog),
-                                tint = colorScheme.onBackground
-                            )
-                        },
+            // 关于卡片
+            SettingsGroupCard(
+                title = stringResource(R.string.about),
+                content = {
+                    SettingItem(
+                        icon = Icons.Filled.Info,
+                        title = stringResource(R.string.about),
                         onClick = {
-                            navigator.push(Route.Sulog)
-                        }
-                    )
-                    SuperArrow(
-                        title = stringResource(id = R.string.send_log),
-                        startAction = {
-                            Icon(
-                                Icons.Rounded.BugReport,
-                                modifier = Modifier.padding(end = 16.dp),
-                                contentDescription = stringResource(id = R.string.send_log),
-                                tint = colorScheme.onBackground
-                            )
-                        },
-                        onClick = {
-                            showSendLogDialog.value = true
-                        },
-                    )
-                    SendLogDialog(showSendLogDialog, loadingDialog)
-                    val about = stringResource(id = R.string.about)
-                    SuperArrow(
-                        title = about,
-                        startAction = {
-                            Icon(
-                                Icons.Rounded.ContactPage,
-                                modifier = Modifier.padding(end = 16.dp),
-                                contentDescription = about,
-                                tint = colorScheme.onBackground
-                            )
-                        },
-                        onClick = {
-                            navigator.push(Route.About)
+                            aboutDialog.show()
                         }
                     )
                 }
-                Spacer(Modifier.height(bottomInnerPadding))
-            }
+            )
+
+            Spacer(modifier = Modifier.height(SPACING_LARGE))
         }
     }
 }
 
-enum class UninstallType(val icon: ImageVector, val title: Int, val message: Int) {
+@Composable
+private fun SettingsGroupCard(
+    title: String,
+    content: @Composable ColumnScope.() -> Unit
+) {
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = SPACING_LARGE, vertical = SPACING_MEDIUM),
+        colors = getCardColors(MaterialTheme.colorScheme.surfaceContainerLow),
+        elevation = getCardElevation()
+    ) {
+        Column(
+            modifier = Modifier.padding(vertical = SPACING_MEDIUM)
+        ) {
+            Text(
+                text = title,
+                style = MaterialTheme.typography.titleMedium,
+                modifier = Modifier.padding(horizontal = SPACING_LARGE, vertical = SPACING_MEDIUM),
+                color = MaterialTheme.colorScheme.primary
+            )
+            content()
+        }
+    }
+}
+
+@Composable
+private fun WebUIEngineSelector(
+    selectedEngine: String,
+    onEngineSelected: (String) -> Unit
+) {
+    var showDialog by remember { mutableStateOf(false) }
+    val engineOptions = listOf(
+        "default" to stringResource(R.string.engine_auto_select),
+        "wx" to stringResource(R.string.engine_force_webuix),
+        "ksu" to stringResource(R.string.engine_force_ksu)
+    )
+
+    SettingItem(
+        icon = Icons.Filled.WebAsset,
+        title = stringResource(R.string.use_webuix),
+        summary = engineOptions.find { it.first == selectedEngine }?.second
+            ?: stringResource(R.string.engine_auto_select),
+        onClick = { showDialog = true }
+    )
+
+    if (showDialog) {
+        AlertDialog(
+            onDismissRequest = { showDialog = false },
+            title = { Text(stringResource(R.string.use_webuix)) },
+            text = {
+                Column {
+                    engineOptions.forEach { (value, label) ->
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable {
+                                    onEngineSelected(value)
+                                    showDialog = false
+                                }
+                                .padding(vertical = 12.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            RadioButton(
+                                selected = selectedEngine == value,
+                                onClick = null
+                            )
+                            Spacer(modifier = Modifier.width(SPACING_MEDIUM))
+                            Text(text = label)
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { showDialog = false }) {
+                    Text(stringResource(R.string.cancel))
+                }
+            }
+        )
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun LogBottomSheet(
+    onDismiss: () -> Unit,
+    onSaveLog: () -> Unit,
+    onShareLog: () -> Unit
+) {
+    ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        containerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(SPACING_LARGE),
+            horizontalArrangement = Arrangement.SpaceEvenly
+        ) {
+            LogActionButton(
+                icon = Icons.Filled.Save,
+                text = stringResource(R.string.save_log),
+                onClick = onSaveLog
+            )
+
+            LogActionButton(
+                icon = Icons.Filled.Share,
+                text = stringResource(R.string.send_log),
+                onClick = onShareLog
+            )
+        }
+        Spacer(modifier = Modifier.height(SPACING_LARGE))
+    }
+}
+
+@Composable
+fun LogActionButton(
+    icon: ImageVector,
+    text: String,
+    onClick: () -> Unit
+) {
+    Column(
+        horizontalAlignment = Alignment.CenterHorizontally,
+        modifier = Modifier
+            .clickable(onClick = onClick)
+            .padding(SPACING_MEDIUM)
+    ) {
+        Box(
+            contentAlignment = Alignment.Center,
+            modifier = Modifier
+                .size(56.dp)
+                .clip(CircleShape)
+                .background(MaterialTheme.colorScheme.primaryContainer)
+        ) {
+            Icon(
+                imageVector = icon,
+                contentDescription = text,
+                tint = MaterialTheme.colorScheme.onPrimaryContainer,
+                modifier = Modifier.size(24.dp)
+            )
+        }
+        Spacer(modifier = Modifier.height(SPACING_MEDIUM))
+        Text(
+            text = text,
+            style = MaterialTheme.typography.bodyMedium
+        )
+    }
+}
+
+@Composable
+fun SettingItem(
+    icon: ImageVector,
+    title: String,
+    summary: String? = null,
+    onClick: () -> Unit
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick)
+            .padding(horizontal = SPACING_LARGE, vertical = 12.dp),
+        verticalAlignment = Alignment.Top
+    ) {
+        Icon(
+            imageVector = icon,
+            contentDescription = null,
+            tint = MaterialTheme.colorScheme.primary,
+            modifier = Modifier
+                .padding(end = SPACING_LARGE)
+                .size(24.dp)
+        )
+
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = title,
+                style = MaterialTheme.typography.titleMedium
+            )
+            if (summary != null) {
+                Spacer(modifier = Modifier.height(SPACING_SMALL))
+                Text(
+                    text = summary,
+                    style = MaterialTheme.typography.bodyMedium
+                )
+            }
+        }
+        Icon(
+            imageVector = Icons.Filled.ChevronRight,
+            contentDescription = null,
+            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.size(24.dp)
+        )
+    }
+}
+
+@Composable
+fun SwitchItem(
+    icon: ImageVector,
+    title: String,
+    summary: String? = null,
+    checked: Boolean,
+    onCheckedChange: (Boolean) -> Unit
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable { onCheckedChange(!checked) }
+            .padding(horizontal = SPACING_LARGE, vertical = 12.dp),
+        verticalAlignment = Alignment.Top
+    ) {
+        Icon(
+            imageVector = icon,
+            contentDescription = null,
+            tint = if (checked) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier
+                .padding(end = SPACING_LARGE)
+                .size(24.dp)
+        )
+
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = title,
+                style = MaterialTheme.typography.titleMedium
+            )
+            if (summary != null) {
+                Spacer(modifier = Modifier.height(SPACING_SMALL))
+                Text(
+                    text = summary,
+                    style = MaterialTheme.typography.bodyMedium
+                )
+            }
+        }
+        Switch(
+            checked = checked,
+            onCheckedChange = onCheckedChange
+        )
+    }
+}
+
+@Composable
+fun UninstallItem(
+    navigator: DestinationsNavigator,
+    withLoading: suspend (suspend () -> Unit) -> Unit
+) {
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    val uninstallConfirmDialog = rememberConfirmDialog()
+    val showTodo = {
+        Toast.makeText(context, "TODO", Toast.LENGTH_SHORT).show()
+    }
+    val uninstallDialog = rememberUninstallDialog { uninstallType ->
+        scope.launch {
+            val result = uninstallConfirmDialog.awaitConfirm(
+                title = context.getString(uninstallType.title),
+                content = context.getString(uninstallType.message)
+            )
+            if (result == ConfirmResult.Confirmed) {
+                withLoading {
+                    when (uninstallType) {
+                        UninstallType.TEMPORARY -> showTodo()
+                        UninstallType.PERMANENT -> navigator.navigate(
+                            FlashScreenDestination(FlashIt.FlashUninstall)
+                        )
+                        UninstallType.RESTORE_STOCK_IMAGE -> navigator.navigate(
+                            FlashScreenDestination(FlashIt.FlashRestore)
+                        )
+                        UninstallType.NONE -> Unit
+                    }
+                }
+            }
+        }
+    }
+
+    SettingItem(
+        icon = Icons.Filled.Delete,
+        title = stringResource(id = R.string.settings_uninstall),
+        onClick = {
+            uninstallDialog.show()
+        }
+    )
+}
+
+enum class UninstallType(val title: Int, val message: Int, val icon: ImageVector) {
     TEMPORARY(
-        Icons.Rounded.RemoveModerator,
         R.string.settings_uninstall_temporary,
-        R.string.settings_uninstall_temporary_message
+        R.string.settings_uninstall_temporary_message,
+        Icons.Filled.Delete
     ),
     PERMANENT(
-        Icons.Rounded.DeleteForever,
         R.string.settings_uninstall_permanent,
-        R.string.settings_uninstall_permanent_message
+        R.string.settings_uninstall_permanent_message,
+        Icons.Filled.DeleteForever
     ),
     RESTORE_STOCK_IMAGE(
-        Icons.Rounded.RestartAlt,
         R.string.settings_restore_stock_image,
-        R.string.settings_restore_stock_image_message
+        R.string.settings_restore_stock_image_message,
+        Icons.AutoMirrored.Filled.Undo
     ),
-    NONE(Icons.Rounded.Adb, 0, 0)
+    NONE(0, 0, Icons.Filled.Delete)
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun rememberUninstallDialog(onSelected: (UninstallType) -> Unit): DialogHandle {
+    return rememberCustomDialog { dismiss ->
+        val options = listOf(
+            UninstallType.PERMANENT,
+            UninstallType.RESTORE_STOCK_IMAGE
+        )
+        val listOptions = options.map {
+            ListOption(
+                titleText = stringResource(it.title),
+                subtitleText = if (it.message != 0) stringResource(it.message) else null,
+                icon = IconSource(it.icon)
+            )
+        }
+
+        var selectedOption by remember { mutableStateOf<UninstallType?>(null) }
+
+        MaterialTheme(
+            colorScheme = MaterialTheme.colorScheme.copy(
+                surface = MaterialTheme.colorScheme.surfaceContainerHigh
+            )
+        ) {
+            AlertDialog(
+                onDismissRequest = {
+                    dismiss()
+                },
+                title = {
+                    Text(
+                        text = stringResource(R.string.settings_uninstall),
+                        style = MaterialTheme.typography.headlineSmall,
+                    )
+                },
+                text = {
+                    Column(
+                        modifier = Modifier.padding(vertical = 8.dp),
+                        verticalArrangement = Arrangement.spacedBy(16.dp)
+                    ) {
+                        options.forEachIndexed { index, option ->
+                            val isSelected = selectedOption == option
+                            val backgroundColor = if (isSelected)
+                                MaterialTheme.colorScheme.primaryContainer
+                            else
+                                Color.Transparent
+                            val contentColor = if (isSelected)
+                                MaterialTheme.colorScheme.onPrimaryContainer
+                            else
+                                MaterialTheme.colorScheme.onSurface
+
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clip(MaterialTheme.shapes.medium)
+                                    .background(backgroundColor)
+                                    .clickable {
+                                        selectedOption = option
+                                    }
+                                    .padding(vertical = 12.dp, horizontal = 8.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Icon(
+                                    imageVector = option.icon,
+                                    contentDescription = null,
+                                    tint = MaterialTheme.colorScheme.primary,
+                                    modifier = Modifier
+                                        .padding(end = 16.dp)
+                                        .size(24.dp)
+                                )
+                                Column(
+                                    modifier = Modifier.weight(1f)
+                                ) {
+                                    Text(
+                                        text = listOptions[index].titleText,
+                                        style = MaterialTheme.typography.titleMedium,
+                                    )
+                                    listOptions[index].subtitleText?.let {
+                                        Text(
+                                            text = it,
+                                            style = MaterialTheme.typography.bodyMedium,
+                                            color = if (isSelected)
+                                                contentColor.copy(alpha = 0.8f)
+                                            else
+                                                MaterialTheme.colorScheme.onSurfaceVariant
+                                        )
+                                    }
+                                }
+                                if (isSelected) {
+                                    Icon(
+                                        imageVector = Icons.Default.RadioButtonChecked,
+                                        contentDescription = null,
+                                        tint = MaterialTheme.colorScheme.primary,
+                                        modifier = Modifier.size(24.dp)
+                                    )
+                                } else {
+                                    Icon(
+                                        imageVector = Icons.Default.RadioButtonUnchecked,
+                                        contentDescription = null,
+                                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        modifier = Modifier.size(24.dp)
+                                    )
+                                }
+                            }
+                        }
+                    }
+                },
+                confirmButton = {
+                    Button(
+                        onClick = {
+                            selectedOption?.let { onSelected(it) }
+                            dismiss()
+                        },
+                        enabled = selectedOption != null,
+                    ) {
+                        Text(
+                            text = stringResource(android.R.string.ok)
+                        )
+                    }
+                },
+                dismissButton = {
+                    TextButton(
+                        onClick = {
+                            dismiss()
+                        }
+                    ) {
+                        Text(
+                            text = stringResource(android.R.string.cancel),
+                        )
+                    }
+                },
+                shape = MaterialTheme.shapes.extraLarge,
+                tonalElevation = 4.dp
+            )
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun TopBar(
+    scrollBehavior: TopAppBarScrollBehavior? = null
+) {
+    val colorScheme = MaterialTheme.colorScheme
+    val cardColor = if (CardConfig.isCustomBackgroundEnabled) {
+        colorScheme.surfaceContainerLow
+    } else {
+        colorScheme.background
+    }
+    TopAppBar(
+        title = {
+            Text(
+                text = stringResource(R.string.settings),
+                style = MaterialTheme.typography.titleLarge
+            )
+        },
+        colors = TopAppBarDefaults.topAppBarColors(
+            containerColor = cardColor.copy(alpha = cardAlpha),
+            scrolledContainerColor = cardColor.copy(alpha = cardAlpha)
+        ),
+        windowInsets = WindowInsets.safeDrawing.only(WindowInsetsSides.Top + WindowInsetsSides.Horizontal),
+        scrollBehavior = scrollBehavior
+    )
 }

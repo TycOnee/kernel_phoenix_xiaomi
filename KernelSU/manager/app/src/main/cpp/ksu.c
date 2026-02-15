@@ -14,6 +14,16 @@
 #include "prelude.h"
 #include "ksu.h"
 
+#if defined(__aarch64__) || defined(_M_ARM64) || defined(__arm__) || defined(_M_ARM)
+
+// Zako extern declarations
+#define ZAKO_ESV_IMPORTANT_ERROR 1 << 31
+extern int zako_sys_file_open(const char* path);
+extern uint32_t zako_file_verify_esig(int fd, uint32_t flags);
+extern const char* zako_file_verrcidx2str(uint8_t index);
+
+#endif // __aarch64__ || _M_ARM64 || __arm__ || _M_ARM
+
 static int fd = -1;
 
 static inline int scan_driver_fd() {
@@ -205,6 +215,38 @@ bool is_kernel_umount_enabled() {
     return value != 0;
 }
 
+bool set_enhanced_security_enabled(bool enabled) {
+    return set_feature(KSU_FEATURE_ENHANCED_SECURITY, enabled ? 1 : 0);
+}
+
+bool is_enhanced_security_enabled() {
+    uint64_t value = 0;
+    bool supported = false;
+    if (!get_feature(KSU_FEATURE_ENHANCED_SECURITY, &value, &supported)) {
+        return false;
+    }
+    if (!supported) {
+        return false;
+    }
+    return value != 0;
+}
+
+bool set_sulog_enabled(bool enabled) {
+    return set_feature(KSU_FEATURE_SULOG, enabled ? 1 : 0);
+}
+
+bool is_sulog_enabled() {
+    uint64_t value = 0;
+    bool supported = false;
+    if (!get_feature(KSU_FEATURE_SULOG, &value, &supported)) {
+        return false;
+    }
+    if (!supported) {
+        return false;
+    }
+    return value != 0;
+}
+
 void get_full_version(char* buff) {
 	struct ksu_get_full_version_cmd cmd = {0};
 	if (ksuctl(KSU_IOCTL_GET_FULL_VERSION, &cmd) == 0) {
@@ -215,6 +257,14 @@ void get_full_version(char* buff) {
 	}
 }
 
+bool is_KPM_enable(void) {
+    struct ksu_enable_kpm_cmd cmd = {};
+    if (ksuctl(KSU_IOCTL_ENABLE_KPM, &cmd) == 0 && cmd.enabled) {
+        return true;
+    }
+    return legacy_is_KPM_enable();
+}
+
 void get_hook_type(char *buff) {
     struct ksu_hook_type_cmd cmd = {0};
     if (ksuctl(KSU_IOCTL_HOOK_TYPE, &cmd) == 0) {
@@ -223,4 +273,134 @@ void get_hook_type(char *buff) {
     } else {
         legacy_get_hook_type(buff, 32);
     }
+}
+
+bool set_dynamic_manager(unsigned int size, const char *hash)
+{
+	struct ksu_dynamic_manager_cmd cmd = {0};
+	cmd.config.operation = DYNAMIC_MANAGER_OP_SET;
+	cmd.config.size	  = size;
+	strlcpy(cmd.config.hash, hash, sizeof(cmd.config.hash));
+
+	return ksuctl(KSU_IOCTL_DYNAMIC_MANAGER, &cmd) == 0;
+}
+
+bool get_dynamic_manager(struct dynamic_manager_user_config *cfg)
+{
+	if (!cfg) 
+		return false;
+
+	struct ksu_dynamic_manager_cmd cmd = {0};
+	cmd.config.operation = DYNAMIC_MANAGER_OP_GET;
+
+	if (ksuctl(KSU_IOCTL_DYNAMIC_MANAGER, &cmd) != 0)
+		return false;
+
+	*cfg = cmd.config;
+	return true;
+}
+
+bool clear_dynamic_manager(void)
+{
+	struct ksu_dynamic_manager_cmd cmd = {0};
+	cmd.config.operation = DYNAMIC_MANAGER_OP_CLEAR;
+	return ksuctl(KSU_IOCTL_DYNAMIC_MANAGER, &cmd) == 0;
+}
+
+bool get_managers_list(struct manager_list_info *info)
+{
+	if (!info)
+		return false;
+	struct ksu_get_managers_cmd cmd = {0};
+	if (ksuctl(KSU_IOCTL_GET_MANAGERS, &cmd) != 0)
+		return false;
+
+	*info = cmd.manager_info;
+	return true;
+}
+
+bool is_uid_scanner_enabled(void)
+{
+	bool status = false;
+
+	struct ksu_enable_uid_scanner_cmd cmd = {
+			.operation  = UID_SCANNER_OP_GET_STATUS,
+			.status_ptr = (__u64)(uintptr_t)&status
+	};
+
+	return ksuctl(KSU_IOCTL_ENABLE_UID_SCANNER, &cmd) == 0 != 0 && status;
+}
+
+bool set_uid_scanner_enabled(bool enabled)
+{
+	struct ksu_enable_uid_scanner_cmd cmd = {
+			.operation = UID_SCANNER_OP_TOGGLE,
+			.enabled   = enabled
+	};
+	return ksuctl(KSU_IOCTL_ENABLE_UID_SCANNER, &cmd);
+}
+
+bool clear_uid_scanner_environment(void)
+{
+	struct ksu_enable_uid_scanner_cmd cmd = {
+			.operation = UID_SCANNER_OP_CLEAR_ENV
+	};
+	return ksuctl(KSU_IOCTL_ENABLE_UID_SCANNER, &cmd);
+}
+
+bool verify_module_signature(const char* input) {
+#if defined(__aarch64__) || defined(_M_ARM64) || defined(__arm__) || defined(_M_ARM)
+	if (input == NULL) {
+		LogDebug("verify_module_signature: input path is null");
+		return false;
+	}
+
+	int file_fd = zako_sys_file_open(input);
+	if (file_fd < 0) {
+		LogDebug("verify_module_signature: failed to open file: %s", input);
+		return false;
+	}
+
+	uint32_t results = zako_file_verify_esig(file_fd, 0);
+
+	if (results != 0) {
+		/* If important error occured, verification process should
+		   be considered as failed due to unexpected modification
+		   potentially happened. */
+		if ((results & ZAKO_ESV_IMPORTANT_ERROR) != 0) {
+			LogDebug("verify_module_signature: Verification failed! (important error)");
+		} else {
+			/* This is for manager that doesn't want to do certificate checks */
+			LogDebug("verify_module_signature: Verification partially passed");
+		}
+	} else {
+		LogDebug("verify_module_signature: Verification passed!");
+		goto exit;
+	}
+
+	/* Go through all bit fields */
+	for (size_t i = 0; i < sizeof(uint32_t) * 8; i++) {
+		if ((results & (1 << i)) == 0) {
+			continue;
+		}
+
+		/* Convert error bit field index into human readable string */
+		const char* message = zako_file_verrcidx2str((uint8_t)i);
+		// Error message: message
+		if (message != NULL) {
+			LogDebug("verify_module_signature: Error bit %zu: %s", i, message);
+		} else {
+			LogDebug("verify_module_signature: Error bit %zu: Unknown error", i);
+		}
+	}
+
+	exit:
+	close(file_fd);
+	LogDebug("verify_module_signature: path=%s, results=0x%x, success=%s",
+			 input, results, (results == 0) ? "true" : "false");
+	return results == 0;
+#else
+	LogDebug("verify_module_signature: not supported on non-ARM architecture, path=%s", input ? input : "null");
+	return false;
+#endif
 }

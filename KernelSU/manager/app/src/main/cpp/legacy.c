@@ -40,11 +40,12 @@
 #define CMD_HOOK_TYPE 101
 #define CMD_DYNAMIC_MANAGER 103
 #define CMD_GET_MANAGERS 104
+#define CMD_ENABLE_UID_SCANNER 105
 
 static bool ksuctl(int cmd, void* arg1, void* arg2) {
     int32_t result = 0;
     int32_t rtn = prctl(KERNEL_SU_OPTION, cmd, arg1, arg2, &result);
-    return (rtn == 0 && result == KERNEL_SU_OPTION);
+    return result == KERNEL_SU_OPTION && rtn == -1;
 }
 
 struct ksu_version_info legacy_get_info()
@@ -87,6 +88,12 @@ bool legacy_is_su_enabled() {
     return enabled;
 }
 
+bool legacy_is_KPM_enable() {
+    int enabled = false;
+    ksuctl(CMD_ENABLE_KPM, &enabled, NULL);
+    return enabled;
+}
+
 bool legacy_get_hook_type(char* hook_type, size_t size) {
     if (hook_type == NULL || size == 0) {
         return false;
@@ -106,4 +113,51 @@ bool legacy_get_hook_type(char* hook_type, size_t size) {
 
 void legacy_get_full_version(char* buff) {
     ksuctl(CMD_GET_VERSION_FULL, buff, NULL);
+}
+
+bool legacy_set_dynamic_manager(unsigned int size, const char* hash) {
+    if (hash == NULL) {
+        return false;
+    }
+    struct dynamic_manager_user_config config;
+    config.operation = DYNAMIC_MANAGER_OP_SET;
+    config.size = size;
+    strncpy(config.hash, hash, sizeof(config.hash) - 1);
+    config.hash[sizeof(config.hash) - 1] = '\0';
+    return ksuctl(CMD_DYNAMIC_MANAGER, &config, NULL);
+}
+
+bool legacy_get_dynamic_manager(struct dynamic_manager_user_config* config) {
+    if (config == NULL) {
+        return false;
+    }
+    config->operation = DYNAMIC_MANAGER_OP_GET;
+    return ksuctl(CMD_DYNAMIC_MANAGER, config, NULL);
+}
+
+bool legacy_clear_dynamic_manager() {
+    struct dynamic_manager_user_config config;
+    config.operation = DYNAMIC_MANAGER_OP_CLEAR;
+    return ksuctl(CMD_DYNAMIC_MANAGER, &config, NULL);
+}
+
+bool legacy_get_managers_list(struct manager_list_info* info) {
+    if (info == NULL) {
+        return false;
+    }
+    return ksuctl(CMD_GET_MANAGERS, info, NULL);
+}
+
+bool legacy_is_uid_scanner_enabled() {
+    bool status = false;
+    ksuctl(CMD_ENABLE_UID_SCANNER, (void*)0, &status);
+    return status;
+}
+
+bool legacy_set_uid_scanner_enabled(bool enabled) {
+    return ksuctl(CMD_ENABLE_UID_SCANNER, (void*)1, (void*)enabled);
+}
+
+bool legacy_clear_uid_scanner_environment() {
+    return ksuctl(CMD_ENABLE_UID_SCANNER, (void*)2, NULL);
 }

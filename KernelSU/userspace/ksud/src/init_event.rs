@@ -47,6 +47,9 @@ pub fn on_post_data_fs() -> Result<()> {
 
     assets::ensure_binaries(true).with_context(|| "Failed to extract bin assets")?;
 
+    // Start UID scanner daemon with highest priority
+    crate::uid_scanner::start_uid_scanner_daemon()?;
+
     // if we are in safe mode, we should disable all modules
     if safe_mode {
         warn!("safe mode, skip post-fs-data scripts and disable all modules!");
@@ -85,8 +88,13 @@ pub fn on_post_data_fs() -> Result<()> {
     }
 
     #[cfg(target_arch = "aarch64")]
-    if let Err(e) = kpm::booted_load() {
+    if let Err(e) = kpm::start_kpm_watcher() {
         warn!("KPM: Failed to start KPM watcher: {e}");
+    }
+
+    #[cfg(target_arch = "aarch64")]
+    if let Err(e) = kpm::load_kpm_modules() {
+        warn!("KPM: Failed to load KPM modules: {e}");
     }
 
     // execute metamodule post-fs-data script first (priority)
@@ -98,12 +106,6 @@ pub fn on_post_data_fs() -> Result<()> {
     // TODO: Add timeout
     if let Err(e) = crate::module::exec_stage_script("post-fs-data", true) {
         warn!("exec post-fs-data scripts failed: {e}");
-    }
-
-    // exec lua script on post-fs-data
-    #[cfg(all(target_os = "android", target_arch = "aarch64"))]
-    if let Err(e) = crate::module::exec_stage_lua("post-fs-data", true, "kernelsu") {
-        warn!("Failed to exec post-fs-data lua: {e}");
     }
 
     // load system.prop
@@ -153,12 +155,6 @@ fn run_stage(stage: &str, block: bool) {
     // execute regular modules stage scripts
     if let Err(e) = crate::module::exec_stage_script(stage, block) {
         warn!("Failed to exec {stage} scripts: {e}");
-    }
-
-    // run lua stage script
-    #[cfg(all(target_os = "android", target_arch = "aarch64"))]
-    if let Err(e) = crate::module::exec_stage_lua(stage, block, "kernelsu") {
-        warn!("Failed to exec {stage} lua: {e}");
     }
 }
 

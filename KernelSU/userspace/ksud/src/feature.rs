@@ -17,6 +17,8 @@ const FEATURE_VERSION: u32 = 1;
 pub enum FeatureId {
     SuCompat = 0,
     KernelUmount = 1,
+    EnhancedSecurity = 2,
+    SuLog = 3,
 }
 
 impl FeatureId {
@@ -24,6 +26,8 @@ impl FeatureId {
         match id {
             0 => Some(Self::SuCompat),
             1 => Some(Self::KernelUmount),
+            2 => Some(Self::EnhancedSecurity),
+            3 => Some(Self::SuLog),
             _ => None,
         }
     }
@@ -32,6 +36,8 @@ impl FeatureId {
         match self {
             Self::SuCompat => "su_compat",
             Self::KernelUmount => "kernel_umount",
+            Self::EnhancedSecurity => "enhanced_security",
+            Self::SuLog => "sulog",
         }
     }
 
@@ -43,6 +49,12 @@ impl FeatureId {
             Self::KernelUmount => {
                 "Kernel Umount - controls whether kernel automatically unmounts modules when not needed"
             }
+            Self::EnhancedSecurity => {
+                "Enhanced Security - disable non‑KSU root elevation and unauthorized UID downgrades"
+            }
+            Self::SuLog => {
+                "SU Log - enables logging of SU command usage to kernel log for auditing purposes"
+            }
         }
     }
 }
@@ -51,6 +63,8 @@ fn parse_feature_id(name: &str) -> Result<FeatureId> {
     match name {
         "su_compat" | "0" => Ok(FeatureId::SuCompat),
         "kernel_umount" | "1" => Ok(FeatureId::KernelUmount),
+        "enhanced_security" | "2" => Ok(FeatureId::EnhancedSecurity),
+        "sulog" | "3" => Ok(FeatureId::SuLog),
         _ => bail!("Unknown feature: {name}"),
     }
 }
@@ -184,28 +198,6 @@ pub fn get_feature(id: &str) -> Result<()> {
     Ok(())
 }
 
-pub fn get_feature_config(id: &str) -> Result<()> {
-    let feature_id = parse_feature_id(id)?;
-
-    let features = load_binary_config()?;
-    let id_u32 = feature_id as u32;
-
-    println!("Feature: {} ({})", feature_id.name(), id_u32);
-    println!("Description: {}", feature_id.description());
-
-    if let Some(value) = features.get(&id_u32) {
-        println!("Value: {value}");
-        println!(
-            "Status: {}",
-            if *value != 0 { "enabled" } else { "disabled" }
-        );
-    } else {
-        println!("Not set in config");
-    }
-
-    Ok(())
-}
-
 pub fn set_feature(id: &str, value: u64) -> Result<()> {
     let feature_id = parse_feature_id(id)?;
 
@@ -271,7 +263,12 @@ pub fn list_features() {
         }
     }
 
-    let all_features = [FeatureId::SuCompat, FeatureId::KernelUmount];
+    let all_features = [
+        FeatureId::SuCompat,
+        FeatureId::KernelUmount,
+        FeatureId::EnhancedSecurity,
+        FeatureId::SuLog,
+    ];
 
     for feature_id in &all_features {
         let id = *feature_id as u32;
@@ -328,7 +325,12 @@ pub fn load_config_and_apply() -> Result<()> {
 pub fn save_config() -> Result<()> {
     let mut features = HashMap::new();
 
-    let all_features = [FeatureId::SuCompat, FeatureId::KernelUmount];
+    let all_features = [
+        FeatureId::SuCompat,
+        FeatureId::KernelUmount,
+        FeatureId::EnhancedSecurity,
+        FeatureId::SuLog,
+    ];
 
     for feature_id in &all_features {
         let id = *feature_id as u32;

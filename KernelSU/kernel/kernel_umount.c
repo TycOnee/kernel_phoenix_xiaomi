@@ -18,6 +18,8 @@
 #include "ksud.h"
 #include "ksu.h"
 
+#include "sulog.h"
+
 static bool ksu_kernel_umount_enabled = true;
 
 static int kernel_umount_feature_get(u64 *value)
@@ -79,9 +81,8 @@ static void umount_tw_func(struct callback_head *cb)
 
     struct mount_entry *entry;
     down_read(&mount_list_lock);
-    list_for_each_entry (entry, &mount_list, list) {
-        pr_info("%s: unmounting: %s flags 0x%x\n", __func__, entry->umountable,
-                entry->flags);
+    list_for_each_entry(entry, &mount_list, list) {
+        pr_info("%s: unmounting: %s flags 0x%x\n", __func__, entry->umountable, entry->flags);
         try_umount(entry->umountable, entry->flags);
     }
     up_read(&mount_list_lock);
@@ -131,7 +132,9 @@ int ksu_handle_umount(uid_t old_uid, uid_t new_uid)
         pr_info("handle umount ignore non zygote child: %d\n", current->pid);
         return 0;
     }
-
+#if __SULOG_GATE
+    ksu_sulog_report_syscall(new_uid, NULL, "setuid", NULL);
+#endif
     // umount the target mnt
     pr_info("handle umount for uid: %d, pid: %d\n", new_uid, current->pid);
 
@@ -141,7 +144,7 @@ int ksu_handle_umount(uid_t old_uid, uid_t new_uid)
 
     tw->cb.func = umount_tw_func;
 
-    int err = task_work_add(current, &tw->cb, TWA_RESUME);
+    int err = task_work_add(current, &tw->cb, 0);
     if (err) {
         kfree(tw);
         pr_warn("unmount add task_work failed\n");

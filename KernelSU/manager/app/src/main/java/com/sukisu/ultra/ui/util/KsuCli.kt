@@ -10,12 +10,6 @@ import android.os.SystemClock
 import android.provider.OpenableColumns
 import android.system.Os
 import android.util.Log
-import androidx.compose.runtime.Composable
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.produceState
-import androidx.compose.runtime.saveable.rememberSaveable
-import androidx.compose.runtime.setValue
 import com.topjohnwu.superuser.CallbackList
 import com.topjohnwu.superuser.Shell
 import com.topjohnwu.superuser.ShellUtils
@@ -25,8 +19,10 @@ import kotlinx.parcelize.Parcelize
 import com.sukisu.ultra.BuildConfig
 import com.sukisu.ultra.Natives
 import com.sukisu.ultra.ksuApp
+import com.topjohnwu.superuser.io.SuFile
 import org.json.JSONArray
 import java.io.File
+import java.util.Properties
 
 
 /**
@@ -39,13 +35,8 @@ private fun getKsuDaemonPath(): String {
     return ksuApp.applicationInfo.nativeLibraryDir + File.separator + "libksud.so"
 }
 
-data class FlashResult(val code: Int, val err: String, val showReboot: Boolean) {
-    constructor(result: Shell.Result, showReboot: Boolean) : this(result.code, result.err.joinToString("\n"), showReboot)
-    constructor(result: Shell.Result) : this(result, result.isSuccess)
-}
-
 object KsuCli {
-    val SHELL: Shell = createRootShell()
+    var SHELL: Shell = createRootShell()
     val GLOBAL_MNT_SHELL: Shell = createRootShell(true)
 }
 
@@ -115,19 +106,15 @@ suspend fun getFeatureStatus(feature: String): String = withContext(Dispatchers.
     out.firstOrNull()?.trim().orEmpty()
 }
 
-suspend fun getFeaturePersistValue(feature: String): Long? = withContext(Dispatchers.IO) {
-    val shell = getRootShell()
-    val out = shell.newJob()
-        .add("${getKsuDaemonPath()} feature get --config $feature").to(ArrayList<String>(), null).exec().out
-    val valueLine = out.firstOrNull { it.trim().startsWith("Value:") } ?: return@withContext null
-    valueLine.substringAfter("Value:").trim().toLongOrNull()
-}
-
 fun install() {
     val start = SystemClock.elapsedRealtime()
     val magiskboot = File(ksuApp.applicationInfo.nativeLibraryDir, "libmagiskboot.so").absolutePath
     val result = execKsud("install --magiskboot $magiskboot", true)
     Log.w(TAG, "install result: $result, cost: ${SystemClock.elapsedRealtime() - start}ms")
+}
+
+fun hasMetaModule(): Boolean {
+    return getMetaModuleImplement() != "None"
 }
 
 fun listModules(): String {
@@ -161,17 +148,24 @@ fun toggleModule(id: String, enable: Boolean): Boolean {
     return result
 }
 
-fun undoUninstallModule(id: String): Boolean {
-    val cmd = "module undo-uninstall $id"
-    val result = execKsud(cmd, true)
-    Log.i(TAG, "undo uninstall module $id result: $result")
-    return result
-}
-
 fun uninstallModule(id: String): Boolean {
     val cmd = "module uninstall $id"
     val result = execKsud(cmd, true)
     Log.i(TAG, "uninstall module $id result: $result")
+    return result
+}
+
+fun restoreModule(id: String): Boolean {
+    val cmd = "module restore $id"
+    val result = execKsud(cmd, true)
+    Log.i(TAG, "restore module $id result: $result")
+    return result
+}
+
+fun undoUninstallModule(id: String): Boolean {
+    val cmd = "module undo-uninstall $id"
+    val result = execKsud(cmd, true)
+    Log.i(TAG, "undo uninstall module $id result: $result")
     return result
 }
 
@@ -200,9 +194,10 @@ private fun flashWithIO(
 
 fun flashModule(
     uri: Uri,
+    onFinish: (Boolean, Int) -> Unit,
     onStdout: (String) -> Unit,
     onStderr: (String) -> Unit
-): FlashResult {
+): Boolean {
     val resolver = ksuApp.contentResolver
     with(resolver.openInputStream(uri)) {
         val file = File(ksuApp.cacheDir, "module.zip")
@@ -215,7 +210,8 @@ fun flashModule(
 
         file.delete()
 
-        return FlashResult(result)
+        onFinish(result.isSuccess, result.code)
+        return result.isSuccess
     }
 }
 
@@ -244,28 +240,32 @@ fun runModuleAction(
 }
 
 fun restoreBoot(
-    onStdout: (String) -> Unit, onStderr: (String) -> Unit
-): FlashResult {
+    onFinish: (Boolean, Int) -> Unit, onStdout: (String) -> Unit, onStderr: (String) -> Unit
+): Boolean {
     val magiskboot = File(ksuApp.applicationInfo.nativeLibraryDir, "libmagiskboot.so")
-    val result = flashWithIO("${getKsuDaemonPath()} boot-restore -f --magiskboot $magiskboot", onStdout, onStderr)
-    return FlashResult(result)
+    val result = flashWithIO(
+        "${getKsuDaemonPath()} boot-restore -f --magiskboot $magiskboot",
+        onStdout,
+        onStderr
+    )
+    onFinish(result.isSuccess, result.code)
+    return result.isSuccess
 }
 
 fun uninstallPermanently(
-    onStdout: (String) -> Unit, onStderr: (String) -> Unit
-): FlashResult {
+    onFinish: (Boolean, Int) -> Unit, onStdout: (String) -> Unit, onStderr: (String) -> Unit
+): Boolean {
     val magiskboot = File(ksuApp.applicationInfo.nativeLibraryDir, "libmagiskboot.so")
-    val result = flashWithIO("${getKsuDaemonPath()} uninstall --magiskboot $magiskboot", onStdout, onStderr)
-    return FlashResult(result)
+    val result =
+        flashWithIO("${getKsuDaemonPath()} uninstall --magiskboot $magiskboot", onStdout, onStderr)
+    onFinish(result.isSuccess, result.code)
+    return result.isSuccess
 }
 
 @Parcelize
 sealed class LkmSelection : Parcelable {
-    @Parcelize
     data class LkmUri(val uri: Uri) : LkmSelection()
-    @Parcelize
     data class KmiString(val value: String) : LkmSelection()
-    @Parcelize
     data object KmiNone : LkmSelection()
 }
 
@@ -274,9 +274,10 @@ fun installBoot(
     lkm: LkmSelection,
     ota: Boolean,
     partition: String?,
+    onFinish: (Boolean, Int) -> Unit,
     onStdout: (String) -> Unit,
     onStderr: (String) -> Unit,
-): FlashResult {
+): Boolean {
     val resolver = ksuApp.contentResolver
 
     val bootFile = bootUri?.let { uri ->
@@ -343,11 +344,13 @@ fun installBoot(
     lkmFile?.delete()
 
     // if boot uri is empty, it is direct install, when success, we should show reboot button
-    val showReboot = bootUri == null && result.isSuccess // we create a temporary val here, to avoid calc showReboot double
-    if (showReboot) { // because we decide do not update ksud when startActivity
-        install() // install ksud here
+    onFinish(bootUri == null && result.isSuccess, result.code)
+
+    if (bootUri == null && result.isSuccess) {
+        install()
     }
-    return FlashResult(result, showReboot)
+
+    return result.isSuccess
 }
 
 fun reboot(reason: String = "") {
@@ -363,6 +366,7 @@ fun rootAvailable(): Boolean {
     val shell = getRootShell()
     return shell.isRoot
 }
+
 
 suspend fun getCurrentKmi(): String = withContext(Dispatchers.IO) {
     val shell = getRootShell()
@@ -470,38 +474,17 @@ fun deleteAppProfileTemplate(id: String): Boolean {
     return shell.newJob().add("${getKsuDaemonPath()} profile delete-template '${id}'")
         .to(ArrayList(), null).exec().isSuccess
 }
-
-fun forceStopApp(packageName: String) {
-    val shell = getRootShell()
-    val result = shell.newJob().add("am force-stop $packageName").exec()
-    Log.i(TAG, "force stop $packageName result: $result")
-}
-
-fun launchApp(packageName: String) {
-    val shell = getRootShell()
-    val result =
-        shell.newJob()
-            .add("cmd package resolve-activity --brief $packageName | tail -n 1 | xargs cmd activity start-activity -n")
-            .exec()
-    Log.i(TAG, "launch $packageName result: $result")
-}
-
-fun restartApp(packageName: String) {
-    forceStopApp(packageName)
-    launchApp(packageName)
-}
-
 // KPM控制
-fun loadKpmModule(path: String, args: String? = null): Boolean {
+fun loadKpmModule(path: String, args: String? = null): String {
     val shell = getRootShell()
     val cmd = "${getKsuDaemonPath()} kpm load $path ${args ?: ""}"
-    return ShellUtils.fastCmdResult(shell, cmd)
+    return ShellUtils.fastCmd(shell, cmd)
 }
 
-fun unloadKpmModule(name: String): Boolean {
+fun unloadKpmModule(name: String): String {
     val shell = getRootShell()
     val cmd = "${getKsuDaemonPath()} kpm unload $name"
-    return ShellUtils.fastCmdResult(shell, cmd)
+    return ShellUtils.fastCmd(shell, cmd)
 }
 
 fun getKpmModuleCount(): Int {
@@ -517,26 +500,6 @@ fun runCmd(shell: Shell, cmd: String): String {
         .to(mutableListOf<String>(), null)
         .exec().out
         .joinToString("\n")
-}
-
-suspend fun streamFile(path: String): List<String> = withContext(Dispatchers.IO) {
-    val shell = getRootShell()
-    val outLines = mutableListOf<String>()
-
-    val stdoutCallback: CallbackList<String?> = object : CallbackList<String?>() {
-        override fun onAddElement(s: String?) {
-            if (s != null) outLines.add(s)
-        }
-    }
-
-    val stderrCallback: CallbackList<String?> = object : CallbackList<String?>() {
-        override fun onAddElement(s: String?) {
-            // ignore stderr for now
-        }
-    }
-
-    shell.newJob().add("cat $path || true").to(stdoutCallback, stderrCallback).exec()
-    outLines
 }
 
 fun listKpmModules(): String {
@@ -575,6 +538,27 @@ fun getKpmVersion(): String {
     return result.trim()
 }
 
+fun forceStopApp(packageName: String) {
+    val shell = getRootShell()
+    val result = shell.newJob().add("am force-stop $packageName").exec()
+    Log.i(TAG, "force stop $packageName result: $result")
+}
+
+fun launchApp(packageName: String) {
+
+    val shell = getRootShell()
+    val result =
+        shell.newJob()
+            .add("cmd package resolve-activity --brief $packageName | tail -n 1 | xargs cmd activity start-activity -n")
+            .exec()
+    Log.i(TAG, "launch $packageName result: $result")
+}
+
+fun restartApp(packageName: String) {
+    forceStopApp(packageName)
+    launchApp(packageName)
+}
+
 fun getSuSFSStatus(): String {
     val shell = getRootShell()
     return ShellUtils.fastCmd(shell, "${getKsuDaemonPath()} susfs status").trim()
@@ -590,6 +574,139 @@ fun getSuSFSFeatures(): String {
     val shell = getRootShell()
     val cmd = "${getKsuDaemonPath()} susfs features"
     return runCmd(shell, cmd)
+}
+
+fun getMetaModuleImplement(): String {
+    try {
+        val metaModuleProp = SuFile.open("/data/adb/metamodule/module.prop")
+        if (!metaModuleProp.isFile) {
+            Log.i(TAG, "Meta module implement: None")
+            return "None"
+        }
+
+        val prop = Properties()
+        prop.load(metaModuleProp.newInputStream())
+
+        val name = prop.getProperty("name")
+        Log.i(TAG, "Meta module implement: $name")
+        return name
+    } catch (_ : Throwable) {
+        Log.i(TAG, "Meta module implement: None")
+        return "None"
+    }
+}
+
+fun getZygiskImplement(): String {
+    val zygiskModuleIds = listOf(
+        "zygisksu",
+        "rezygisk",
+        "shirokozygisk"
+    )
+
+    for (moduleId in zygiskModuleIds) {
+        // 忽略禁用/即将删除
+        if (SuFile.open("/data/adb/modules/$moduleId/disable").isFile || SuFile.open("/data/adb/modules/$moduleId/remove").isFile) continue
+
+        // 读取prop
+        val propFile = SuFile.open("/data/adb/modules/$moduleId/module.prop")
+        if (!propFile.isFile) continue
+
+        val prop = Properties()
+        prop.load(propFile.newInputStream())
+
+        val name = prop.getProperty("name")
+        Log.i(TAG, "Zygisk implement: $name")
+        return name
+    }
+
+    Log.i(TAG, "Zygisk implement: None")
+    return "None"
+}
+
+fun getUidScannerDaemonPath(): String {
+    return ksuApp.applicationInfo.nativeLibraryDir + File.separator + "libuid_scanner.so"
+}
+
+private const val targetPath = "/data/adb/uid_scanner"
+fun ensureUidScannerExecutable(): Boolean {
+    val shell = getRootShell()
+    val uidScannerPath = getUidScannerDaemonPath()
+    if (!ShellUtils.fastCmdResult(shell, "test -f $targetPath")) {
+        val copyResult = ShellUtils.fastCmdResult(shell, "cp $uidScannerPath $targetPath")
+        if (!copyResult) {
+            return false
+        }
+    }
+
+    val result = ShellUtils.fastCmdResult(shell, "chmod 755 $targetPath")
+    return result
+}
+
+fun setUidAutoScan(enabled: Boolean): Boolean {
+    val shell = getRootShell()
+    if (!ensureUidScannerExecutable()) {
+        return false
+    }
+
+    val enableValue = if (enabled) 1 else 0
+    val cmd = "$targetPath --auto-scan $enableValue && $targetPath reload"
+    val result = ShellUtils.fastCmdResult(shell, cmd)
+
+    val throneResult = Natives.setUidScannerEnabled(enabled)
+
+    return result && throneResult
+}
+
+fun setUidMultiUserScan(enabled: Boolean): Boolean {
+    val shell = getRootShell()
+    if (!ensureUidScannerExecutable()) {
+        return false
+    }
+
+    val enableValue = if (enabled) 1 else 0
+    val cmd = "$targetPath --multi-user $enableValue && $targetPath reload"
+    val result = ShellUtils.fastCmdResult(shell, cmd)
+    return result
+}
+
+fun getUidMultiUserScan(): Boolean {
+    val shell = getRootShell()
+
+    val cmd = "grep 'multi_user_scan=' /data/misc/user_uid/uid_scanner.conf | cut -d'=' -f2"
+    val result = ShellUtils.fastCmd(shell, cmd).trim()
+
+    return try {
+        result.toInt() == 1
+    } catch (_: NumberFormatException) {
+        false
+    }
+}
+
+fun cleanRuntimeEnvironment(): Boolean {
+    val shell = getRootShell()
+    return try {
+        try {
+            ShellUtils.fastCmd(shell, "/data/adb/uid_scanner stop")
+        } catch (_: Exception) {
+        }
+        ShellUtils.fastCmdResult(shell, "rm -rf /data/misc/user_uid")
+        ShellUtils.fastCmdResult(shell, "rm -rf /data/adb/uid_scanner")
+        ShellUtils.fastCmdResult(shell, "rm -rf /data/adb/ksu/bin/user_uid")
+        ShellUtils.fastCmdResult(shell, "rm -rf /data/adb/service.d/uid_scanner.sh")
+        Natives.clearUidScannerEnvironment()
+        true
+    } catch (_: Exception) {
+        false
+    }
+}
+
+fun readUidScannerFile(): Boolean {
+    val shell = getRootShell()
+    return try {
+        ShellUtils.fastCmd(shell, "cat /data/adb/ksu/.uid_scanner").trim() == "1"
+    } catch (_: Exception) {
+        false
+    }
 }
 
 fun addUmountPath(path: String, flags: Int): Boolean {
@@ -642,26 +759,4 @@ fun applyUmountConfigToKernel(): Boolean {
     val result = ShellUtils.fastCmdResult(shell, cmd)
     Log.i(TAG, "apply umount config to kernel result: $result")
     return result
-}
-
-fun retrieveSulogLogs(): Boolean {
-    val shell = getRootShell()
-    val cmd = "${getKsuDaemonPath()} sulog-dump"
-    val result = ShellUtils.fastCmdResult(shell, cmd)
-    Log.i(TAG, "save umount config result: $result")
-    return result
-}
-
-// 检查 KPM 版本是否可用
-@Composable
-fun rememberKpmAvailable(): Boolean {
-    var cachedVersion by rememberSaveable { mutableStateOf("") }
-    val kpmVersion by produceState(initialValue = cachedVersion) {
-        val result = withContext(Dispatchers.IO) {
-            runCatching { getKpmVersion() }.getOrElse { "" }
-        }
-        cachedVersion = result
-        value = result
-    }
-    return kpmVersion.isNotEmpty() && !kpmVersion.contains("Error", ignoreCase = true)
 }

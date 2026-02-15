@@ -1,5 +1,6 @@
 #include <linux/mutex.h>
 #include <linux/task_work.h>
+#include <linux/sched/task.h>
 #include <linux/capability.h>
 #include <linux/compiler.h>
 #include <linux/fs.h>
@@ -10,6 +11,7 @@
 #include <linux/slab.h>
 #include <linux/types.h>
 #include <linux/version.h>
+#include <linux/sched.h>
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(4, 14, 0)
 #include <linux/compiler_types.h>
 #endif
@@ -20,9 +22,6 @@
 #include "allowlist.h"
 #include "manager.h"
 #include "syscall_hook_manager.h"
-#include "su_mount_ns.h"
-#include <linux/version.h>
-#include <linux/sched/task.h>
 
 #define FILE_MAGIC 0x7f4b5355 // ' KSU', u32
 #define FILE_FORMAT_VERSION 3 // u32
@@ -81,7 +80,7 @@ static void init_default_profiles(void)
     default_root_profile.groups[0] = 0;
     memcpy(&default_root_profile.capabilities.effective, &full_cap,
            sizeof(default_root_profile.capabilities.effective));
-    default_root_profile.namespaces = KSU_NS_INHERITED;
+    default_root_profile.namespaces = 0;
     strcpy(default_root_profile.selinux_domain, KSU_DEFAULT_SELINUX_DOMAIN);
 
     // This means that we will umount modules by default!
@@ -279,8 +278,8 @@ bool __ksu_is_allow_uid(uid_t uid)
         return false;
     }
 
-    if (likely(ksu_is_manager_appid_valid()) &&
-        unlikely(ksu_get_manager_appid() == uid % PER_USER_RANGE)) {
+    if (likely(ksu_is_manager_uid_valid()) &&
+        unlikely(ksu_get_manager_uid() == uid)) {
         // manager is always allowed!
         return true;
     }
@@ -310,8 +309,8 @@ bool __ksu_is_allow_uid_for_current(uid_t uid)
 bool ksu_uid_should_umount(uid_t uid)
 {
     struct app_profile profile = { .current_uid = uid };
-    if (likely(ksu_is_manager_appid_valid()) &&
-        unlikely(ksu_get_manager_appid() == uid % PER_USER_RANGE)) {
+    if (likely(ksu_is_manager_uid_valid()) &&
+        unlikely(ksu_get_manager_uid() == uid)) {
         // we should not umount on manager!
         return false;
     }
@@ -410,7 +409,7 @@ unlock:
     kfree(_cb);
 }
 
-void persistent_allow_list()
+void persistent_allow_list(void)
 {
     struct task_struct *tsk;
 
@@ -423,19 +422,11 @@ void persistent_allow_list()
     struct callback_head *cb =
         kzalloc(sizeof(struct callback_head), GFP_KERNEL);
     if (!cb) {
-        pr_err("save_allow_list alloc cb err\n");
+        pr_err("save_allow_list alloc cb err\b");
         goto put_task;
     }
     cb->func = do_persistent_allow_list;
-    
-#if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 8, 0)
-    if (task_work_add(tsk, cb, TWA_RESUME)) {
-#else
-    if (task_work_add(tsk, cb, false)) {
-#endif
-        kfree(cb);
-        pr_warn("save_allow_list add task_work failed\n");
-    }
+    task_work_add(tsk, cb, 0);
 
 put_task:
     put_task_struct(tsk);
@@ -594,14 +585,10 @@ bool ksu_temp_grant_root_once(uid_t uid)
     profile.rp_config.profile.uid = default_root_profile.uid;
     profile.rp_config.profile.gid = default_root_profile.gid;
     profile.rp_config.profile.groups_count = default_root_profile.groups_count;
-    memcpy(profile.rp_config.profile.groups, default_root_profile.groups,
-           sizeof(default_root_profile.groups));
-    memcpy(&profile.rp_config.profile.capabilities,
-           &default_root_profile.capabilities,
-           sizeof(default_root_profile.capabilities));
+    memcpy(profile.rp_config.profile.groups, default_root_profile.groups, sizeof(default_root_profile.groups));
+    memcpy(&profile.rp_config.profile.capabilities, &default_root_profile.capabilities, sizeof(default_root_profile.capabilities));
     profile.rp_config.profile.namespaces = default_root_profile.namespaces;
-    strcpy(profile.rp_config.profile.selinux_domain,
-           default_root_profile.selinux_domain);
+    strcpy(profile.rp_config.profile.selinux_domain, default_root_profile.selinux_domain);
 
     bool ok = ksu_set_app_profile(&profile, false);
     if (ok)
@@ -636,10 +623,8 @@ void ksu_temp_revoke_root_once(uid_t uid)
         strcpy(profile.key, default_key);
     }
 
-    profile.nrp_config.profile.umount_modules =
-        default_non_root_profile.umount_modules;
-    strcpy(profile.rp_config.profile.selinux_domain,
-           KSU_DEFAULT_SELINUX_DOMAIN);
+    profile.nrp_config.profile.umount_modules = default_non_root_profile.umount_modules;
+    strcpy(profile.rp_config.profile.selinux_domain, KSU_DEFAULT_SELINUX_DOMAIN);
 
     ksu_set_app_profile(&profile, false);
     persistent_allow_list();

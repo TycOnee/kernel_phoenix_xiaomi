@@ -66,8 +66,8 @@ object ScriptGenerator {
             appendLine()
 
             if (shouldConfigureInService(config)) {
-                // 添加SUS路径
-                if (config.susPaths.isNotEmpty()) {
+                // 添加SUS路径 (仅在不支持隐藏挂载时)
+                if (!config.support158 && config.susPaths.isNotEmpty()) {
                     appendLine()
                     appendLine("until [ -d \"/sdcard/Android\" ]; do sleep 1; done")
                     appendLine("sleep 45")
@@ -437,30 +437,33 @@ object ScriptGenerator {
             appendLine(generateBinaryCheck(config.targetPath))
             appendLine()
 
-            // SUS挂载隐藏控制
-            val hideValue = if (config.hideSusMountsForAllProcs) 1 else 0
-            appendLine("# 设置SUS挂载隐藏控制")
-            appendLine($$"\"$SUSFS_BIN\" hide_sus_mnts_for_non_su_procs $$hideValue")
-            appendLine($$"echo \"$(get_current_time): SUS挂载隐藏控制设置为: $${if (config.hideSusMountsForAllProcs) "对所有进程隐藏" else "仅对非KSU进程隐藏"}\" >> \"$LOG_FILE\"")
-            appendLine()
-
-            // 路径设置和SUS路径设置
-            if (config.susPaths.isNotEmpty() || config.susLoopPaths.isNotEmpty()) {
-                generatePathSettingSection(config.androidDataPath, config.sdcardPath)
+            // 仅在支持隐藏挂载功能时执行相关配置
+            if (config.support158) {
+                // SUS挂载隐藏控制
+                val hideValue = if (config.hideSusMountsForAllProcs) 1 else 0
+                appendLine("# 设置SUS挂载隐藏控制")
+                appendLine($$"\"$SUSFS_BIN\" hide_sus_mnts_for_all_procs $$hideValue")
+                appendLine($$"echo \"$(get_current_time): SUS挂载隐藏控制设置为: $${if (config.hideSusMountsForAllProcs) "对所有进程隐藏" else "仅对非KSU进程隐藏"}\" >> \"$LOG_FILE\"")
                 appendLine()
 
-                // 添加普通SUS路径
-                if (config.susPaths.isNotEmpty()) {
-                    generateSusPathsSection(config.susPaths)
-                }
+                // 路径设置和SUS路径设置
+                if (config.susPaths.isNotEmpty() || config.susLoopPaths.isNotEmpty()) {
+                    generatePathSettingSection(config.androidDataPath, config.sdcardPath)
+                    appendLine()
 
-                // 添加循环SUS路径
-                if (config.susLoopPaths.isNotEmpty()) {
-                    generateSusLoopPathsSection(config.susLoopPaths)
-                }
+                    // 添加普通SUS路径
+                    if (config.susPaths.isNotEmpty()) {
+                        generateSusPathsSection(config.susPaths)
+                    }
 
-                if (config.susMaps.isNotEmpty()) {
-                    generateSusMapsSection(config.susMaps)
+                    // 添加循环SUS路径
+                    if (config.susLoopPaths.isNotEmpty()) {
+                        generateSusLoopPathsSection(config.susLoopPaths)
+                    }
+
+                    if (config.susMaps.isNotEmpty()) {
+                        generateSusMapsSection(config.susMaps)
+                    }
                 }
             }
 
@@ -499,8 +502,8 @@ object ScriptGenerator {
      * 生成module.prop文件内容
      */
     fun generateModuleProp(moduleId: String): String {
-        val moduleVersion = "v4.0.0"
-        val moduleVersionCode = "40000"
+        val moduleVersion = "v1.0.2"
+        val moduleVersionCode = "1002"
 
         return """
             id=$moduleId

@@ -8,29 +8,34 @@ import android.content.pm.PackageInfo
 import android.os.Build
 import android.util.Log
 import android.widget.Toast
+import com.dergoogler.mmrl.platform.Platform.Companion.context
 import com.sukisu.ultra.R
 import com.topjohnwu.superuser.Shell
-import com.topjohnwu.superuser.io.SuFile
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withContext
+import java.io.File
+import java.io.FileOutputStream
+import java.io.IOException
 import androidx.core.content.edit
 import com.sukisu.ultra.ui.util.getRootShell
 import com.sukisu.ultra.ui.util.getSuSFSVersion
 import com.sukisu.ultra.ui.util.getSuSFSFeatures
 import com.sukisu.ultra.ui.viewmodel.SuperUserViewModel
+import com.topjohnwu.superuser.io.SuFile
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import org.json.JSONArray
 import org.json.JSONObject
-import java.io.File
-import java.io.FileOutputStream
-import java.io.IOException
 import java.text.SimpleDateFormat
 import java.util.*
 
+/**
+ * SuSFS 配置管理器
+ * 用于管理SuSFS相关的配置和命令执行
+ */
 object SuSFSManager {
     private const val PREFS_NAME = "susfs_config"
     private const val KEY_UNAME_VALUE = "uname_value"
@@ -51,34 +56,33 @@ object SuSFSManager {
     private const val KEY_ENABLE_HIDE_BL = "enable_hide_bl"
     private const val KEY_ENABLE_AVC_LOG_SPOOFING = "enable_avc_log_spoofing"
 
+
     // 常量
+    private const val SUSFS_BINARY_TARGET_NAME = "ksu_susfs"
     private const val DEFAULT_UNAME = "default"
     private const val DEFAULT_BUILD_TIME = "default"
+    private const val MODULE_ID = "susfs_manager"
+    private const val MODULE_PATH = "/data/adb/modules/$MODULE_ID"
+    private const val MIN_VERSION_FOR_HIDE_MOUNT = "1.5.8"
+    private const val MIN_VERSION_FOR_LOOP_PATH = "1.5.9"
+    private const val MIN_VERSION_SUS_MAPS = "1.5.12"
     const val MAX_SUSFS_VERSION = "2.0.0"
     private const val BACKUP_FILE_EXTENSION = ".susfs_backup"
     private const val MEDIA_DATA_PATH = "/data/media/0/Android/data"
     private const val CGROUP_BASE_PATH = "/sys/fs/cgroup"
-    private const val SUSFS_BINARY_TARGET_NAME = "ksu_susfs"
 
     data class SlotInfo(val slotName: String, val uname: String, val buildTime: String)
+    data class CommandResult(val isSuccess: Boolean, val output: String, val errorOutput: String = "")
     data class EnabledFeature(
         val name: String,
         val isEnabled: Boolean,
-        val statusText: String,
+        val statusText: String = if (isEnabled) context.getString(R.string.susfs_feature_enabled) else context.getString(R.string.susfs_feature_disabled),
         val canConfigure: Boolean = false
-    ) {
-        companion object {
-            fun create(context: Context, name: String, isEnabled: Boolean): EnabledFeature {
-                val statusText = if (isEnabled) {
-                    context.getString(R.string.susfs_feature_enabled)
-                } else {
-                    context.getString(R.string.susfs_feature_disabled)
-                }
-                return EnabledFeature(name, isEnabled, statusText, false)
-            }
-        }
-    }
+    )
 
+    /**
+     * 应用信息数据类
+     */
     data class AppInfo(
         val packageName: String,
         val appName: String,
@@ -86,6 +90,9 @@ object SuSFSManager {
         val isSystemApp: Boolean
     )
 
+    /**
+     * 备份数据类
+     */
     data class BackupData(
         val version: String,
         val timestamp: Long,
@@ -137,6 +144,9 @@ object SuSFSManager {
         }
     }
 
+    /**
+     * 模块配置数据类
+     */
     data class ModuleConfig(
         val targetPath: String,
         val unameValue: String,
@@ -151,6 +161,7 @@ object SuSFSManager {
         val kstatConfigs: Set<String>,
         val addKstatPaths: Set<String>,
         val hideSusMountsForAllProcs: Boolean,
+        val support158: Boolean,
         val enableHideBl: Boolean,
         val enableCleanupResidue: Boolean,
         val enableAvcLogSpoofing: Boolean
@@ -173,49 +184,25 @@ object SuSFSManager {
     private fun getPrefs(context: Context): SharedPreferences =
         context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
 
-    private fun getSuSFSBinaryName(): String {
-        val version = try {
-            getSuSFSVersion()
-        } catch (_: Exception) {
+    private fun getSuSFSVersionUse(context: Context): String = try {
+        val version = getSuSFSVersion()
+        val binaryName = "${SUSFS_BINARY_TARGET_NAME}_${version.removePrefix("v")}"
+        if (isBinaryAvailable(context, binaryName)) {
+            version
+        } else {
             MAX_SUSFS_VERSION
         }
-        val versionSuffix = version.removePrefix("v")
-        return "${SUSFS_BINARY_TARGET_NAME}_$versionSuffix"
+    } catch (_: Exception) {
+        MAX_SUSFS_VERSION
     }
 
-    fun getSuSFSTargetPath(): String = "/data/adb/ksu/bin/$SUSFS_BINARY_TARGET_NAME"
+    fun isBinaryAvailable(context: Context, binaryName: String): Boolean = try {
+        context.assets.open(binaryName).use { true }
+    } catch (_: IOException) { false }
 
-    suspend fun copyBinaryFromAssets(context: Context): String? = withContext(Dispatchers.IO) {
-        try {
-            val binaryName = getSuSFSBinaryName()
-            val targetPath = getSuSFSTargetPath()
-            val tempFile = File(context.cacheDir, binaryName)
+    private fun getSuSFSBinaryName(context: Context): String = "${SUSFS_BINARY_TARGET_NAME}_${getSuSFSVersionUse(context).removePrefix("v")}"
 
-            context.assets.open(binaryName).use { input ->
-                FileOutputStream(tempFile).use { output ->
-                    input.copyTo(output)
-                }
-            }
-
-            val shell = Shell.getShell()
-            val success = shell.newJob()
-                .add("cp '${tempFile.absolutePath}' '$targetPath'")
-                .add("chmod 755 '$targetPath'")
-                .exec().isSuccess
-            
-            tempFile.delete()
-
-            if (success && shell.newJob().add("test -f '$targetPath'").exec().isSuccess) {
-                targetPath
-            } else {
-                null
-            }
-        } catch (e: IOException) {
-            Log.e("SuSFSManager", "Failed to copy binary", e)
-            null
-        }
-    }
-
+    private fun getSuSFSTargetPath(): String = "/data/adb/ksu/bin/$SUSFS_BINARY_TARGET_NAME"
 
     private fun runCmd(shell: Shell, cmd: String): String {
         return shell.newJob()
@@ -225,35 +212,50 @@ object SuSFSManager {
             .joinToString("\n")
     }
 
-    private fun runCmdWithResult(cmd: String): SuSFSModuleManager.CommandResult {
+    private fun runCmdWithResult(cmd: String): CommandResult {
         val result = Shell.getShell().newJob().add(cmd).exec()
-        return SuSFSModuleManager.CommandResult(result.isSuccess, result.out.joinToString("\n"), result.err.joinToString("\n"))
+        return CommandResult(result.isSuccess, result.out.joinToString("\n"), result.err.joinToString("\n"))
     }
 
-    private suspend fun executeSusfsCommandDirect(context: Context, command: String): SuSFSModuleManager.CommandResult = withContext(Dispatchers.IO) {
-        try {
-            val binaryPath = copyBinaryFromAssets(context) ?: return@withContext SuSFSModuleManager.CommandResult(
-                false, "", context.getString(R.string.susfs_binary_not_found)
-            )
-            val shell = Shell.getShell()
-            val result = shell.newJob().add("$binaryPath $command").exec()
-            val commandResult = SuSFSModuleManager.CommandResult(
-                isSuccess = result.isSuccess,
-                output = result.out.joinToString("\n"),
-                errorOutput = result.err.joinToString("\n")
-            )
-            if (!commandResult.isSuccess) {
-                Log.e("SuSFSManager", "Command failed: $command, error: ${commandResult.errorOutput}")
+    /**
+     * 版本比较方法
+     */
+    private fun compareVersions(version1: String, version2: String): Int {
+        val v1Parts = version1.removePrefix("v").split(".").map { it.toIntOrNull() ?: 0 }
+        val v2Parts = version2.removePrefix("v").split(".").map { it.toIntOrNull() ?: 0 }
+
+        val maxLength = maxOf(v1Parts.size, v2Parts.size)
+
+        for (i in 0 until maxLength) {
+            val v1Part = v1Parts.getOrNull(i) ?: 0
+            val v2Part = v2Parts.getOrNull(i) ?: 0
+
+            when {
+                v1Part > v2Part -> return 1
+                v1Part < v2Part -> return -1
             }
-            commandResult
-        } catch (e: Exception) {
-            Log.e("SuSFSManager", "Exception executing command: $command", e)
-            SuSFSModuleManager.CommandResult(false, "", e.message ?: "Unknown error")
         }
+        return 0
     }
 
+    private fun isVersionAtLeast(minVersion: String): Boolean = try {
+        compareVersions(getSuSFSVersion(), minVersion) >= 0
+    } catch (_: Exception) {
+        true
+    }
+    // 检查是否支持设置sdcard路径等功能（1.5.8+）
+    fun isSusVersion158(): Boolean = isVersionAtLeast(MIN_VERSION_FOR_HIDE_MOUNT)
 
-    fun getCurrentModuleConfig(context: Context): ModuleConfig {
+    // 检查是否支持循环路径和AVC日志欺骗等功能（1.5.9+）
+    fun isSusVersion159(): Boolean = isVersionAtLeast(MIN_VERSION_FOR_LOOP_PATH)
+
+    // 检查是否支持隐藏内存映射（1.5.12+）
+    fun isSusVersion1512(): Boolean = isVersionAtLeast(MIN_VERSION_SUS_MAPS)
+
+    /**
+     * 获取当前模块配置
+     */
+    private fun getCurrentModuleConfig(context: Context): ModuleConfig {
         return ModuleConfig(
             targetPath = getSuSFSTargetPath(),
             unameValue = getUnameValue(context),
@@ -268,6 +270,7 @@ object SuSFSManager {
             kstatConfigs = getKstatConfigs(context),
             addKstatPaths = getAddKstatPaths(context),
             hideSusMountsForAllProcs = getHideSusMountsForAllProcs(context),
+            support158 = isSusVersion158(),
             enableHideBl = getEnableHideBl(context),
             enableCleanupResidue = getEnableCleanupResidue(context),
             enableAvcLogSpoofing = getEnableAvcLogSpoofing(context)
@@ -302,8 +305,14 @@ object SuSFSManager {
     fun getExecuteInPostFsData(context: Context): Boolean =
         getPrefs(context).getBoolean(KEY_EXECUTE_IN_POST_FS_DATA, false)
 
-    fun saveExecuteInPostFsData(context: Context, enabled: Boolean) =
-        getPrefs(context).edit { putBoolean(KEY_EXECUTE_IN_POST_FS_DATA, enabled) }
+    fun saveExecuteInPostFsData(context: Context, executeInPostFsData: Boolean) {
+        getPrefs(context).edit { putBoolean(KEY_EXECUTE_IN_POST_FS_DATA, executeInPostFsData) }
+        if (isAutoStartEnabled(context)) {
+            CoroutineScope(Dispatchers.Default).launch {
+                updateMagiskModule(context)
+            }
+        }
+    }
 
     // SUS挂载隐藏控制
     fun saveHideSusMountsForAllProcs(context: Context, hideForAll: Boolean) =
@@ -389,7 +398,8 @@ object SuSFSManager {
         try {
             val allApps = mutableMapOf<String, AppInfo>()
 
-            SuperUserViewModel.getAppsSafely().forEach { superUserApp ->
+            // 从SuperUser中获取应用
+            SuperUserViewModel.apps.forEach { superUserApp ->
                 try {
                     val isSystemApp = superUserApp.packageInfo.applicationInfo?.let {
                         (it.flags and ApplicationInfo.FLAG_SYSTEM) != 0
@@ -421,7 +431,8 @@ object SuSFSManager {
                             .exec()
 
                         result.isSuccess && outputList.isNotEmpty() && outputList[0].trim() == "exists"
-                    } catch (_: Exception) {
+                    } catch (e: Exception) {
+                        Log.w("SuSFSManager", "Failed to check directory for ${appInfo.packageName}: ${e.message}")
                         false
                     }
                     if (exists) appInfo else null
@@ -429,7 +440,8 @@ object SuSFSManager {
             }.awaitAll().filterNotNull()
 
             filteredApps.sortedBy { it.appName }
-        } catch (_: Exception) {
+        } catch (e: Exception) {
+            e.printStackTrace()
             emptyList()
         }
     }
@@ -437,7 +449,8 @@ object SuSFSManager {
     // 获取应用的UID
     private suspend fun getAppUid(context: Context, packageName: String): Int? = withContext(Dispatchers.IO) {
         try {
-            val superUserApp = SuperUserViewModel.getAppsSafely().find { it.packageName == packageName }
+            // 从SuperUserViewModel中查找
+            val superUserApp = SuperUserViewModel.apps.find { it.packageName == packageName }
             if (superUserApp != null) {
                 return@withContext superUserApp.packageInfo.applicationInfo?.uid
             }
@@ -446,7 +459,8 @@ object SuSFSManager {
             val packageManager = context.packageManager
             val packageInfo = packageManager.getPackageInfo(packageName, 0)
             packageInfo.applicationInfo?.uid
-        } catch (_: Exception) {
+        } catch (e: Exception) {
+            Log.w("SuSFSManager", "Failed to get UID for package $packageName: ${e.message}")
             null
         }
     }
@@ -490,8 +504,8 @@ object SuSFSManager {
         return possiblePaths[0]
     }
 
+
     // 快捷添加应用路径
-    @SuppressLint("StringFormatMatches")
     suspend fun addAppPaths(context: Context, packageName: String): Boolean {
         val androidDataPath = getAndroidDataPath(context)
         getSdcardPath(context)
@@ -499,28 +513,37 @@ object SuSFSManager {
         val path1 = "$androidDataPath/$packageName"
         val path2 = "$MEDIA_DATA_PATH/$packageName"
 
-        val uid = getAppUid(context, packageName) ?: return false
+        val uid = getAppUid(context, packageName)
+        if (uid == null) {
+            Log.w("SuSFSManager", "Failed to get UID for package: $packageName")
+            return false
+        }
 
         val path3 = buildUidPath(uid)
 
         var successCount = 0
+        val totalCount = 3
 
         // 添加第一个路径（Android/data路径）
-        if (addSusPathInternal(context, path1, showToast = false)) {
+        if (addSusPath(context, path1)) {
             successCount++
         }
 
         // 添加第二个路径（媒体数据路径）
-        if (addSusPathInternal(context, path2, showToast = false)) {
+        if (addSusPath(context, path2)) {
             successCount++
         }
 
         // 添加第三个路径（UID路径）
-        if (addSusPathInternal(context, path3, showToast = false)) {
+        if (addSusPath(context, path3)) {
             successCount++
         }
 
-        return successCount > 0
+        val success = successCount > 0
+
+        Log.d("SuSFSManager", "Added $successCount/$totalCount paths for $packageName (UID: $uid)")
+
+        return success
     }
 
     // 获取所有配置的Map
@@ -631,26 +654,21 @@ object SuSFSManager {
 
     // 还原配置到SharedPreferences
     private fun restoreConfigurations(context: Context, configurations: Map<String, Any>) {
-        try {
-            val prefs = getPrefs(context)
-            prefs.edit {
-                configurations.forEach { (key, value) ->
-                    when (value) {
-                        is String -> putString(key, value)
-                        is Boolean -> putBoolean(key, value)
-                        is Set<*> -> {
-                            @Suppress("UNCHECKED_CAST")
-                            putStringSet(key, value as Set<String>)
-                        }
-                        is Int -> putInt(key, value)
-                        is Long -> putLong(key, value)
-                        is Float -> putFloat(key, value)
+        val prefs = getPrefs(context)
+        prefs.edit {
+            configurations.forEach { (key, value) ->
+                when (value) {
+                    is String -> putString(key, value)
+                    is Boolean -> putBoolean(key, value)
+                    is Set<*> -> {
+                        @Suppress("UNCHECKED_CAST")
+                        putStringSet(key, value as Set<String>)
                     }
+                    is Int -> putInt(key, value)
+                    is Long -> putLong(key, value)
+                    is Float -> putFloat(key, value)
                 }
             }
-        } catch (e: Exception) {
-            e.printStackTrace()
-            throw e
         }
     }
 
@@ -715,25 +733,112 @@ object SuSFSManager {
         }
     }
 
-    // 命令执行
-    private suspend fun executeSusfsCommand(context: Context, command: String): Boolean {
-        val result = executeSusfsCommandDirect(context, command)
-        if (!result.isSuccess) {
-            showToast(context, "${context.getString(R.string.susfs_command_failed)}\n${result.output}\n${result.errorOutput}")
+    // 二进制文件管理
+    private suspend fun copyBinaryFromAssets(context: Context): String? = withContext(Dispatchers.IO) {
+        try {
+            val binaryName = getSuSFSBinaryName(context)
+            val targetPath = getSuSFSTargetPath()
+            val tempFile = File(context.cacheDir, binaryName)
+
+            context.assets.open(binaryName).use { input ->
+                FileOutputStream(tempFile).use { output ->
+                    input.copyTo(output)
+                }
+            }
+
+            val success = runCmdWithResult("cp '${tempFile.absolutePath}' '$targetPath' && chmod 755 '$targetPath'").isSuccess
+            tempFile.delete()
+
+            if (success && runCmdWithResult("test -f '$targetPath'").isSuccess) targetPath else null
+        } catch (e: IOException) {
+            e.printStackTrace()
+            null
         }
-        return result.isSuccess
     }
 
-    private suspend fun executeSusfsCommandWithOutput(context: Context, command: String): SuSFSModuleManager.CommandResult {
-        return executeSusfsCommandDirect(context, command)
+    fun isBinaryAvailable(context: Context): Boolean = try {
+        context.assets.open(getSuSFSBinaryName(context)).use { true }
+    } catch (_: IOException) { false }
+
+    // 命令执行
+    private suspend fun executeSusfsCommand(context: Context, command: String): Boolean = withContext(Dispatchers.IO) {
+        try {
+            val binaryPath = copyBinaryFromAssets(context) ?: run {
+                showToast(context, context.getString(R.string.susfs_binary_not_found))
+                return@withContext false
+            }
+
+            val result = runCmdWithResult("$binaryPath $command")
+
+            if (!result.isSuccess) {
+                showToast(context, "${context.getString(R.string.susfs_command_failed)}\n${result.output}\n${result.errorOutput}")
+            }
+
+            result.isSuccess
+        } catch (e: Exception) {
+            e.printStackTrace()
+            showToast(context, context.getString(R.string.susfs_command_error, e.message ?: "Unknown error"))
+            false
+        }
+    }
+
+    private suspend fun executeSusfsCommandWithOutput(context: Context, command: String): CommandResult = withContext(Dispatchers.IO) {
+        try {
+            val binaryPath = copyBinaryFromAssets(context) ?: return@withContext CommandResult(
+                false, "", context.getString(R.string.susfs_binary_not_found)
+            )
+            runCmdWithResult("$binaryPath $command")
+        } catch (e: Exception) {
+            e.printStackTrace()
+            CommandResult(false, "", e.message ?: "Unknown error")
+        }
     }
 
     private suspend fun showToast(context: Context, message: String) = withContext(Dispatchers.Main) {
         Toast.makeText(context, message, Toast.LENGTH_SHORT).show()
     }
 
+    /**
+     * 模块管理
+     */
     private suspend fun updateMagiskModule(context: Context): Boolean {
-        return SuSFSModuleManager.updateMagiskModule(context)
+        return removeMagiskModule() && createMagiskModule(context)
+    }
+
+    /**
+     * 模块创建方法
+     */
+    private suspend fun createMagiskModule(context: Context): Boolean = withContext(Dispatchers.IO) {
+        try {
+            val config = getCurrentModuleConfig(context)
+
+            // 创建模块目录
+            if (!runCmdWithResult("mkdir -p $MODULE_PATH").isSuccess) return@withContext false
+
+            // 创建module.prop
+            val moduleProp = ScriptGenerator.generateModuleProp(MODULE_ID)
+            if (!runCmdWithResult("cat > $MODULE_PATH/module.prop << 'EOF'\n$moduleProp\nEOF").isSuccess) return@withContext false
+
+            // 生成并创建所有脚本文件
+            val scripts = ScriptGenerator.generateAllScripts(config)
+
+            scripts.all { (filename, content) ->
+                runCmdWithResult("cat > $MODULE_PATH/$filename << 'EOF'\n$content\nEOF").isSuccess &&
+                        runCmdWithResult("chmod 755 $MODULE_PATH/$filename").isSuccess
+            }
+        } catch (e: Exception) {
+            e.printStackTrace()
+            false
+        }
+    }
+
+    private suspend fun removeMagiskModule(): Boolean = withContext(Dispatchers.IO) {
+        try {
+            runCmdWithResult("rm -rf $MODULE_PATH").isSuccess
+        } catch (e: Exception) {
+            e.printStackTrace()
+            false
+        }
     }
 
     // 功能状态获取
@@ -760,14 +865,13 @@ object SuSFSManager {
 
         val featureMap = mapOf(
             "CONFIG_KSU_SUSFS_SUS_PATH" to context.getString(R.string.sus_path_feature_label),
-            "CONFIG_KSU_SUSFS_SUS_MOUNT" to context.getString(R.string.sus_mount_feature_label),
             "CONFIG_KSU_SUSFS_SPOOF_UNAME" to context.getString(R.string.spoof_uname_feature_label),
             "CONFIG_KSU_SUSFS_SPOOF_CMDLINE_OR_BOOTCONFIG" to context.getString(R.string.spoof_cmdline_feature_label),
             "CONFIG_KSU_SUSFS_OPEN_REDIRECT" to context.getString(R.string.open_redirect_feature_label),
             "CONFIG_KSU_SUSFS_ENABLE_LOG" to context.getString(R.string.enable_log_feature_label),
             "CONFIG_KSU_SUSFS_HIDE_KSU_SUSFS_SYMBOLS" to context.getString(R.string.hide_symbols_feature_label),
             "CONFIG_KSU_SUSFS_SUS_KSTAT" to context.getString(R.string.sus_kstat_feature_label),
-            "CONFIG_KSU_SUSFS_SUS_MAP" to context.getString(R.string.sus_map_feature_label)
+            "CONFIG_KSU_SUSFS_SUS_MAP" to context.getString(R.string.sus_map_feature_label),
         )
 
 
@@ -789,7 +893,6 @@ object SuSFSManager {
     private fun getDefaultDisabledFeatures(context: Context): List<EnabledFeature> {
         val defaultFeatures = listOf(
             "sus_path_feature_label" to context.getString(R.string.sus_path_feature_label),
-            "sus_mount_feature_label" to context.getString(R.string.sus_mount_feature_label),
             "spoof_uname_feature_label" to context.getString(R.string.spoof_uname_feature_label),
             "spoof_cmdline_feature_label" to context.getString(R.string.spoof_cmdline_feature_label),
             "open_redirect_feature_label" to context.getString(R.string.open_redirect_feature_label),
@@ -815,26 +918,45 @@ object SuSFSManager {
         if (success) {
             saveEnableLogState(context, enabled)
             if (isAutoStartEnabled(context)) updateMagiskModule(context)
+            showToast(context, if (enabled) context.getString(R.string.susfs_log_enabled) else context.getString(R.string.susfs_log_disabled))
         }
         return success
     }
 
     // AVC日志欺骗开关
     suspend fun setEnableAvcLogSpoofing(context: Context, enabled: Boolean): Boolean {
+        if (!isSusVersion159()) {
+            return false
+        }
+
         val success = executeSusfsCommand(context, "enable_avc_log_spoofing ${if (enabled) 1 else 0}")
         if (success) {
             saveEnableAvcLogSpoofing(context, enabled)
             if (isAutoStartEnabled(context)) updateMagiskModule(context)
+            showToast(context, if (enabled)
+                context.getString(R.string.avc_log_spoofing_enabled)
+            else
+                context.getString(R.string.avc_log_spoofing_disabled)
+            )
         }
         return success
     }
 
     // SUS挂载隐藏控制
     suspend fun setHideSusMountsForAllProcs(context: Context, hideForAll: Boolean): Boolean {
-        val success = executeSusfsCommand(context, "hide_sus_mnts_for_non_su_procs ${if (hideForAll) 1 else 0}")
+        if (!isSusVersion158()) {
+            return false
+        }
+
+        val success = executeSusfsCommand(context, "hide_sus_mnts_for_all_procs ${if (hideForAll) 1 else 0}")
         if (success) {
             saveHideSusMountsForAllProcs(context, hideForAll)
             if (isAutoStartEnabled(context)) updateMagiskModule(context)
+            showToast(context, if (hideForAll)
+                context.getString(R.string.susfs_hide_mounts_all_enabled)
+            else
+                context.getString(R.string.susfs_hide_mounts_all_disabled)
+            )
         }
         return success
     }
@@ -847,22 +969,37 @@ object SuSFSManager {
             saveUnameValue(context, unameValue)
             saveBuildTimeValue(context, buildTimeValue)
             if (isAutoStartEnabled(context)) updateMagiskModule(context)
+            showToast(context, context.getString(R.string.susfs_uname_set_success, unameValue, buildTimeValue))
         }
         return success
     }
 
     // 添加SUS路径
     @SuppressLint("StringFormatInvalid")
-    private suspend fun addSusPathInternal(context: Context, path: String, showToast: Boolean = true): Boolean {
-        // 先设置路径配置
-        val androidDataPath = getAndroidDataPath(context)
-        val sdcardPath = getSdcardPath(context)
+    suspend fun addSusPath(context: Context, path: String): Boolean {
+        // 如果是1.5.8版本，先设置路径配置
+        if (isSusVersion158()) {
+            // 获取当前配置的路径，如果没有配置则使用默认值
+            val androidDataPath = getAndroidDataPath(context)
+            val sdcardPath = getSdcardPath(context)
 
-        // 先设置Android Data路径
-        executeSusfsCommand(context, "set_android_data_root_path '$androidDataPath'")
+            // 先设置Android Data路径
+            val androidDataSuccess = executeSusfsCommand(context, "set_android_data_root_path '$androidDataPath'")
+            if (androidDataSuccess) {
+                showToast(context, context.getString(R.string.susfs_android_data_path_set, androidDataPath))
+            }
 
-        // 再设置SD卡路径
-        executeSusfsCommand(context, "set_sdcard_root_path '$sdcardPath'")
+            // 再设置SD卡路径
+            val sdcardSuccess = executeSusfsCommand(context, "set_sdcard_root_path '$sdcardPath'")
+            if (sdcardSuccess) {
+                showToast(context, context.getString(R.string.susfs_sdcard_path_set, sdcardPath))
+            }
+
+            // 如果路径设置失败，记录但不阻止继续执行
+            if (!androidDataSuccess || !sdcardSuccess) {
+                showToast(context, context.getString(R.string.susfs_path_setup_warning))
+            }
+        }
 
         // 执行添加SUS路径命令
         val result = executeSusfsCommandWithOutput(context, "add_sus_path '$path'")
@@ -871,21 +1008,22 @@ object SuSFSManager {
         if (isActuallySuccessful) {
             saveSusPaths(context, getSusPaths(context) + path)
             if (isAutoStartEnabled(context)) updateMagiskModule(context)
-        } else if (showToast) {
-            val errorMsg = result.errorOutput.ifEmpty { context.getString(R.string.susfs_command_failed) }
-            showToast(context, errorMsg)
+            showToast(context, context.getString(R.string.susfs_sus_path_added_success, path))
+        } else {
+            val errorMessage = if (result.output.contains("not found, skip adding")) {
+                context.getString(R.string.susfs_path_not_found_error, path)
+            } else {
+                "${context.getString(R.string.susfs_command_failed)}\n${result.output}\n${result.errorOutput}"
+            }
+            showToast(context, errorMessage)
         }
         return isActuallySuccessful
-    }
-
-    @SuppressLint("StringFormatInvalid")
-    suspend fun addSusPath(context: Context, path: String): Boolean {
-        return addSusPathInternal(context, path, showToast = true)
     }
 
     suspend fun removeSusPath(context: Context, path: String): Boolean {
         saveSusPaths(context, getSusPaths(context) - path)
         if (isAutoStartEnabled(context)) updateMagiskModule(context)
+        showToast(context, "SUS path removed: $path")
         return true
     }
 
@@ -894,25 +1032,28 @@ object SuSFSManager {
         return try {
             val currentPaths = getSusPaths(context).toMutableSet()
             if (!currentPaths.remove(oldPath)) {
-                showToast(context, context.getString(R.string.susfs_command_failed))
+                showToast(context, "Original path not found: $oldPath")
                 return false
             }
 
             saveSusPaths(context, currentPaths)
 
-            val success = addSusPathInternal(context, newPath, showToast = false)
+            val success = addSusPath(context, newPath)
 
-            if (!success) {
+            if (success) {
+                showToast(context, "SUS path updated: $oldPath -> $newPath")
+                return true
+            } else {
                 // 如果添加新路径失败，恢复旧路径
                 currentPaths.add(oldPath)
                 saveSusPaths(context, currentPaths)
                 if (isAutoStartEnabled(context)) updateMagiskModule(context)
-                showToast(context, context.getString(R.string.susfs_command_failed))
+                showToast(context, "Failed to update path, reverted to original")
+                return false
             }
-            return success
         } catch (e: Exception) {
-            Log.e("SuSFSManager", "Exception editing SUS path", e)
-            showToast(context, context.getString(R.string.susfs_command_failed))
+            e.printStackTrace()
+            showToast(context, "Error updating SUS path: ${e.message}")
             false
         }
     }
@@ -924,12 +1065,10 @@ object SuSFSManager {
     }
 
     @SuppressLint("StringFormatInvalid")
-    private suspend fun addSusLoopPathInternal(context: Context, path: String, showToast: Boolean = true): Boolean {
+    suspend fun addSusLoopPath(context: Context, path: String): Boolean {
         // 检查路径是否有效
         if (!isValidLoopPath(path)) {
-            if (showToast) {
-                showToast(context, context.getString(R.string.susfs_invalid_loop_path))
-            }
+            showToast(context, context.getString(R.string.susfs_loop_path_invalid_location))
             return false
         }
 
@@ -940,21 +1079,22 @@ object SuSFSManager {
         if (isActuallySuccessful) {
             saveSusLoopPaths(context, getSusLoopPaths(context) + path)
             if (isAutoStartEnabled(context)) updateMagiskModule(context)
-        } else if (showToast) {
-            val errorMsg = result.errorOutput.ifEmpty { context.getString(R.string.susfs_add_loop_path_failed) }
-            showToast(context, errorMsg)
+            showToast(context, context.getString(R.string.susfs_loop_path_added_success, path))
+        } else {
+            val errorMessage = if (result.output.contains("not found, skip adding")) {
+                context.getString(R.string.susfs_path_not_found_error, path)
+            } else {
+                "${context.getString(R.string.susfs_command_failed)}\n${result.output}\n${result.errorOutput}"
+            }
+            showToast(context, errorMessage)
         }
         return isActuallySuccessful
-    }
-
-    @SuppressLint("StringFormatInvalid")
-    suspend fun addSusLoopPath(context: Context, path: String): Boolean {
-        return addSusLoopPathInternal(context, path, showToast = true)
     }
 
     suspend fun removeSusLoopPath(context: Context, path: String): Boolean {
         saveSusLoopPaths(context, getSusLoopPaths(context) - path)
         if (isAutoStartEnabled(context)) updateMagiskModule(context)
+        showToast(context, context.getString(R.string.susfs_loop_path_removed, path))
         return true
     }
 
@@ -962,57 +1102,54 @@ object SuSFSManager {
     suspend fun editSusLoopPath(context: Context, oldPath: String, newPath: String): Boolean {
         // 检查新路径是否有效
         if (!isValidLoopPath(newPath)) {
-            showToast(context, context.getString(R.string.susfs_invalid_loop_path))
+            showToast(context, context.getString(R.string.susfs_loop_path_invalid_location))
             return false
         }
 
         return try {
             val currentPaths = getSusLoopPaths(context).toMutableSet()
             if (!currentPaths.remove(oldPath)) {
-                showToast(context, context.getString(R.string.susfs_edit_loop_path_failed))
+                showToast(context, "Original loop path not found: $oldPath")
                 return false
             }
 
             saveSusLoopPaths(context, currentPaths)
 
-            val success = addSusLoopPathInternal(context, newPath, showToast = false)
+            val success = addSusLoopPath(context, newPath)
 
-            if (!success) {
+            if (success) {
+                showToast(context, context.getString(R.string.susfs_loop_path_updated, oldPath, newPath))
+                return true
+            } else {
                 // 如果添加新路径失败，恢复旧路径
                 currentPaths.add(oldPath)
                 saveSusLoopPaths(context, currentPaths)
                 if (isAutoStartEnabled(context)) updateMagiskModule(context)
-                showToast(context, context.getString(R.string.susfs_edit_loop_path_failed))
+                showToast(context, "Failed to update loop path, reverted to original")
+                return false
             }
-            return success
         } catch (e: Exception) {
-            Log.e("SuSFSManager", "Exception editing SUS loop path", e)
-            showToast(context, context.getString(R.string.susfs_edit_loop_path_failed))
+            e.printStackTrace()
+            showToast(context, "Error updating SUS loop path: ${e.message}")
             false
         }
     }
 
     // 添加 SUS Maps
-    private suspend fun addSusMapInternal(context: Context, map: String, showToast: Boolean = true): Boolean {
-        val result = executeSusfsCommandWithOutput(context, "add_sus_map '$map'")
-        val success = result.isSuccess
+    suspend fun addSusMap(context: Context, map: String): Boolean {
+        val success = executeSusfsCommand(context, "add_sus_map '$map'")
         if (success) {
             saveSusMaps(context, getSusMaps(context) + map)
             if (isAutoStartEnabled(context)) updateMagiskModule(context)
-        } else if (showToast) {
-            val errorMsg = result.errorOutput.ifEmpty { context.getString(R.string.susfs_add_map_failed) }
-            showToast(context, errorMsg)
+            showToast(context, context.getString(R.string.susfs_sus_map_added_success, map))
         }
         return success
-    }
-
-    suspend fun addSusMap(context: Context, map: String): Boolean {
-        return addSusMapInternal(context, map, showToast = true)
     }
 
     suspend fun removeSusMap(context: Context, map: String): Boolean {
         saveSusMaps(context, getSusMaps(context) - map)
         if (isAutoStartEnabled(context)) updateMagiskModule(context)
+        showToast(context, context.getString(R.string.susfs_sus_map_removed, map))
         return true
     }
 
@@ -1020,53 +1157,52 @@ object SuSFSManager {
         return try {
             val currentMaps = getSusMaps(context).toMutableSet()
             if (!currentMaps.remove(oldMap)) {
-                showToast(context, context.getString(R.string.susfs_edit_map_failed))
+                showToast(context, "Original SUS map not found: $oldMap")
                 return false
             }
 
             saveSusMaps(context, currentMaps)
 
-            val success = addSusMapInternal(context, newMap, showToast = false)
+            val success = addSusMap(context, newMap)
 
-            if (!success) {
+            if (success) {
+                showToast(context, context.getString(R.string.susfs_sus_map_updated, oldMap, newMap))
+                return true
+            } else {
                 // 如果添加新映射失败，恢复旧映射
                 currentMaps.add(oldMap)
                 saveSusMaps(context, currentMaps)
                 if (isAutoStartEnabled(context)) updateMagiskModule(context)
-                showToast(context, context.getString(R.string.susfs_edit_map_failed))
+                showToast(context, "Failed to update SUS map, reverted to original")
+                return false
             }
-            return success
         } catch (e: Exception) {
-            Log.e("SuSFSManager", "Exception editing SUS map", e)
-            showToast(context, context.getString(R.string.susfs_edit_map_failed))
+            e.printStackTrace()
+            showToast(context, "Error updating SUS map: ${e.message}")
             false
         }
     }
 
     // 添加kstat配置
-    private suspend fun addKstatStaticallyInternal(context: Context, path: String, ino: String, dev: String, nlink: String,
+    suspend fun addKstatStatically(context: Context, path: String, ino: String, dev: String, nlink: String,
                                    size: String, atime: String, atimeNsec: String, mtime: String, mtimeNsec: String,
-                                   ctime: String, ctimeNsec: String, blocks: String, blksize: String
-    ): Boolean {
+                                   ctime: String, ctimeNsec: String, blocks: String, blksize: String): Boolean {
         val command = "add_sus_kstat_statically '$path' '$ino' '$dev' '$nlink' '$size' '$atime' '$atimeNsec' '$mtime' '$mtimeNsec' '$ctime' '$ctimeNsec' '$blocks' '$blksize'"
         val success = executeSusfsCommand(context, command)
         if (success) {
             val configEntry = "$path|$ino|$dev|$nlink|$size|$atime|$atimeNsec|$mtime|$mtimeNsec|$ctime|$ctimeNsec|$blocks|$blksize"
             saveKstatConfigs(context, getKstatConfigs(context) + configEntry)
             if (isAutoStartEnabled(context)) updateMagiskModule(context)
+            showToast(context, context.getString(R.string.kstat_static_config_added, path))
         }
         return success
-    }
-
-    suspend fun addKstatStatically(context: Context, path: String, ino: String, dev: String, nlink: String,
-                                   size: String, atime: String, atimeNsec: String, mtime: String, mtimeNsec: String,
-                                   ctime: String, ctimeNsec: String, blocks: String, blksize: String): Boolean {
-        return addKstatStaticallyInternal(context, path, ino, dev, nlink, size, atime, atimeNsec, mtime, mtimeNsec, ctime, ctimeNsec, blocks, blksize)
     }
 
     suspend fun removeKstatConfig(context: Context, config: String): Boolean {
         saveKstatConfigs(context, getKstatConfigs(context) - config)
         if (isAutoStartEnabled(context)) updateMagiskModule(context)
+        val path = config.split("|").firstOrNull() ?: config
+        showToast(context, context.getString(R.string.kstat_config_removed, path))
         return true
     }
 
@@ -1078,45 +1214,48 @@ object SuSFSManager {
         return try {
             val currentConfigs = getKstatConfigs(context).toMutableSet()
             if (!currentConfigs.remove(oldConfig)) {
+                showToast(context, "Original kstat config not found")
                 return false
             }
 
             saveKstatConfigs(context, currentConfigs)
 
-            val success = addKstatStaticallyInternal(context, path, ino, dev, nlink, size, atime, atimeNsec,
-                mtime, mtimeNsec, ctime, ctimeNsec, blocks, blksize
-            )
+            val success = addKstatStatically(context, path, ino, dev, nlink, size, atime, atimeNsec,
+                mtime, mtimeNsec, ctime, ctimeNsec, blocks, blksize)
 
-            if (!success) {
+            if (success) {
+                showToast(context, context.getString(R.string.kstat_config_updated, path))
+                return true
+            } else {
                 // 如果添加新配置失败，恢复旧配置
                 currentConfigs.add(oldConfig)
                 saveKstatConfigs(context, currentConfigs)
                 if (isAutoStartEnabled(context)) updateMagiskModule(context)
+                showToast(context, "Failed to update kstat config, reverted to original")
+                return false
             }
-            return success
-        } catch (
-            _: Exception) {
+        } catch (e: Exception) {
+            e.printStackTrace()
+            showToast(context, "Error updating kstat config: ${e.message}")
             false
         }
     }
 
     // 添加kstat路径
-    private suspend fun addKstatInternal(context: Context, path: String): Boolean {
+    suspend fun addKstat(context: Context, path: String): Boolean {
         val success = executeSusfsCommand(context, "add_sus_kstat '$path'")
         if (success) {
             saveAddKstatPaths(context, getAddKstatPaths(context) + path)
             if (isAutoStartEnabled(context)) updateMagiskModule(context)
+            showToast(context, context.getString(R.string.kstat_path_added, path))
         }
         return success
-    }
-
-    suspend fun addKstat(context: Context, path: String): Boolean {
-        return addKstatInternal(context, path)
     }
 
     suspend fun removeAddKstat(context: Context, path: String): Boolean {
         saveAddKstatPaths(context, getAddKstatPaths(context) - path)
         if (isAutoStartEnabled(context)) updateMagiskModule(context)
+        showToast(context, context.getString(R.string.kstat_path_removed, path))
         return true
     }
 
@@ -1126,33 +1265,44 @@ object SuSFSManager {
         return try {
             val currentPaths = getAddKstatPaths(context).toMutableSet()
             if (!currentPaths.remove(oldPath)) {
+                showToast(context, "Original kstat path not found: $oldPath")
                 return false
             }
 
             saveAddKstatPaths(context, currentPaths)
 
-            val success = addKstatInternal(context, newPath)
+            val success = addKstat(context, newPath)
 
-            if (!success) {
+            if (success) {
+                showToast(context, context.getString(R.string.kstat_path_updated, oldPath, newPath))
+                return true
+            } else {
                 // 如果添加新路径失败，恢复旧路径
                 currentPaths.add(oldPath)
                 saveAddKstatPaths(context, currentPaths)
                 if (isAutoStartEnabled(context)) updateMagiskModule(context)
+                showToast(context, "Failed to update kstat path, reverted to original")
+                return false
             }
-            return success
-        } catch (_: Exception) {
+        } catch (e: Exception) {
+            e.printStackTrace()
+            showToast(context, "Error updating kstat path: ${e.message}")
             false
         }
     }
 
     // 更新kstat
     suspend fun updateKstat(context: Context, path: String): Boolean {
-        return executeSusfsCommand(context, "update_sus_kstat '$path'")
+        val success = executeSusfsCommand(context, "update_sus_kstat '$path'")
+        if (success) showToast(context, context.getString(R.string.kstat_updated, path))
+        return success
     }
 
     // 更新kstat全克隆
     suspend fun updateKstatFullClone(context: Context, path: String): Boolean {
-        return executeSusfsCommand(context, "update_sus_kstat_full_clone '$path'")
+        val success = executeSusfsCommand(context, "update_sus_kstat_full_clone '$path'")
+        if (success) showToast(context, context.getString(R.string.kstat_full_clone_updated, path))
+        return success
     }
 
     // 设置Android数据路径
@@ -1183,6 +1333,9 @@ object SuSFSManager {
         return success
     }
 
+    /**
+     * 自启动配置检查
+     */
     fun hasConfigurationForAutoStart(context: Context): Boolean {
         val config = getCurrentModuleConfig(context)
         return config.hasAutoStartConfig() || runBlocking {
@@ -1190,40 +1343,46 @@ object SuSFSManager {
         }
     }
 
+    /**
+     * 自启动配置方法
+     */
     suspend fun configureAutoStart(context: Context, enabled: Boolean): Boolean = withContext(Dispatchers.IO) {
         try {
             if (enabled) {
                 if (!hasConfigurationForAutoStart(context)) {
-                    Log.e("SuSFSManager", "No configuration available for auto start")
+                    showToast(context, context.getString(R.string.susfs_no_config_to_autostart))
                     return@withContext false
                 }
 
                 val targetPath = getSuSFSTargetPath()
                 if (!runCmdWithResult("test -f '$targetPath'").isSuccess) {
                     copyBinaryFromAssets(context) ?: run {
-                        Log.e("SuSFSManager", "Failed to copy binary from assets for auto start")
+                        showToast(context, context.getString(R.string.susfs_binary_not_found))
                         return@withContext false
                     }
                 }
 
-                val success = SuSFSModuleManager.createMagiskModule(context)
+                val success = createMagiskModule(context)
                 if (success) {
                     setAutoStartEnabled(context, true)
+                    showToast(context, context.getString(R.string.susfs_autostart_enabled_success, MODULE_PATH))
                 } else {
-                    Log.e("SuSFSManager", "Failed to create Magisk module for auto start")
+                    showToast(context, context.getString(R.string.susfs_autostart_enable_failed))
                 }
                 success
             } else {
-                val success = SuSFSModuleManager.removeMagiskModule()
+                val success = removeMagiskModule()
                 if (success) {
                     setAutoStartEnabled(context, false)
+                    showToast(context, context.getString(R.string.susfs_autostart_disabled_success))
                 } else {
-                    Log.e("SuSFSManager", "Failed to remove Magisk module")
+                    showToast(context, context.getString(R.string.susfs_autostart_disable_failed))
                 }
                 success
             }
         } catch (e: Exception) {
-            Log.e("SuSFSManager", "Exception configuring auto start: enabled=$enabled", e)
+            e.printStackTrace()
+            showToast(context, context.getString(R.string.susfs_autostart_error, e.message ?: "Unknown error"))
             false
         }
     }

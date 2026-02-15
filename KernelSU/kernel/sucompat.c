@@ -2,16 +2,7 @@
 #include <linux/preempt.h>
 #include <linux/printk.h>
 #include <linux/mm.h>
-#include <linux/version.h>
-#if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 8, 0)
 #include <linux/pgtable.h>
-#else
-#include <asm/pgtable.h>
-#endif
-// Add this compatibility macro
-#if LINUX_VERSION_CODE < KERNEL_VERSION(5, 10, 0)
-#define strncpy_from_user_nofault strncpy_from_unsafe_user
-#endif
 #include <linux/uaccess.h>
 #include <asm/current.h>
 #include <linux/cred.h>
@@ -28,6 +19,8 @@
 #include "sucompat.h"
 #include "app_profile.h"
 #include "util.h"
+
+#include "sulog.h"
 
 #define SU_PATH "/system/bin/su"
 #define SH_PATH "/system/bin/sh"
@@ -92,6 +85,9 @@ int ksu_handle_faccessat(int *dfd, const char __user **filename_user, int *mode,
     strncpy_from_user_nofault(path, *filename_user, sizeof(path));
 
     if (unlikely(!memcmp(path, su, sizeof(su)))) {
+#if __SULOG_GATE
+        ksu_sulog_report_syscall(current_uid().val, NULL, "faccessat", path);
+#endif
         pr_info("faccessat su->sh!\n");
         *filename_user = sh_user_path();
     }
@@ -117,6 +113,9 @@ int ksu_handle_stat(int *dfd, const char __user **filename_user, int *flags)
     strncpy_from_user_nofault(path, *filename_user, sizeof(path));
 
     if (unlikely(!memcmp(path, su, sizeof(su)))) {
+#if __SULOG_GATE
+        ksu_sulog_report_syscall(current_uid().val, NULL, "newfstatat", path);
+#endif
         pr_info("newfstatat su->sh!\n");
         *filename_user = sh_user_path();
     }
@@ -125,8 +124,8 @@ int ksu_handle_stat(int *dfd, const char __user **filename_user, int *flags)
 }
 
 int ksu_handle_execve_sucompat(const char __user **filename_user,
-                               void *__never_use_argv, void *__never_use_envp,
-                               int *__never_use_flags)
+                   void *__never_use_argv, void *__never_use_envp,
+                   int *__never_use_flags)
 {
     const char su[] = SU_PATH;
     const char __user *fn;
@@ -137,10 +136,19 @@ int ksu_handle_execve_sucompat(const char __user **filename_user,
     if (unlikely(!filename_user))
         return 0;
 
+#if __SULOG_GATE
+    bool is_allowed = ksu_is_allow_uid_for_current(current_uid().val);
+    ksu_sulog_report_syscall(current_uid().val, NULL, "execve", path);
+    
+    if (!is_allowed)
+        return 0;
+
+    ksu_sulog_report_su_attempt(current_uid().val, NULL, path, is_allowed);
+#else
     if (!ksu_is_allow_uid_for_current(current_uid().val)) {
-        write_sulog('$');
         return 0;
     }
+#endif
 
     addr = untagged_addr((unsigned long)*filename_user);
     fn = (const char __user *)addr;
@@ -168,7 +176,6 @@ int ksu_handle_execve_sucompat(const char __user **filename_user,
     if (likely(memcmp(path, su, sizeof(su))))
         return 0;
 
-    write_sulog('x');
     pr_info("sys_execve su found\n");
     *filename_user = ksud_user_path();
 

@@ -2,14 +2,15 @@ use anyhow::{Context, Ok, Result};
 use clap::Parser;
 use std::path::PathBuf;
 
+#[cfg(target_os = "android")]
 use android_logger::Config;
+#[cfg(target_os = "android")]
 use log::LevelFilter;
 
 use crate::boot_patch::{BootPatchArgs, BootRestoreArgs};
-#[cfg(target_arch = "aarch64")]
-use crate::susfs;
 use crate::{
-    apk_sign, assets, debug, defs, init_event, ksucalls, module, module_config, umount, utils,
+    apk_sign, assets, debug, defs, init_event, ksucalls, module, module_config, susfs, umount,
+    utils,
 };
 
 /// KernelSU userspace cli
@@ -37,7 +38,6 @@ enum Commands {
     /// Trigger `boot-complete` event
     BootCompleted,
 
-    #[cfg(target_arch = "aarch64")]
     /// Susfs
     Susfs {
         #[command(subcommand)]
@@ -110,8 +110,6 @@ enum Commands {
         #[command(subcommand)]
         command: Kernel,
     },
-    /// Dump kernel sulog to file (/data/adb/ksu/log/sulog.log)
-    SulogDump,
 }
 
 #[derive(clap::Subcommand, Debug)]
@@ -260,15 +258,6 @@ enum Module {
         id: String,
     },
 
-    /// module lua runner
-    #[cfg(all(target_os = "android", target_arch = "aarch64"))]
-    Lua {
-        // module id
-        id: String,
-        // lua function
-        function: String,
-    },
-
     /// list all modules
     List,
 
@@ -367,9 +356,6 @@ enum Feature {
     Get {
         /// Feature ID or name (su_compat, kernel_umount)
         id: String,
-        /// Read from config file
-        #[arg(long, default_value_t = false)]
-        config: bool,
     },
 
     /// Set feature value
@@ -480,7 +466,6 @@ mod kpm_cmd {
     }
 }
 
-#[cfg(target_arch = "aarch64")]
 #[derive(clap::Subcommand, Debug)]
 enum Susfs {
     /// Get SUSFS Status
@@ -492,11 +477,15 @@ enum Susfs {
 }
 
 pub fn run() -> Result<()> {
+    #[cfg(target_os = "android")]
     android_logger::init_once(
         Config::default()
-            .with_max_level(crate::debug_select!(LevelFilter::Trace, LevelFilter::Info))
-            .with_tag("KernelSU"),
+            .with_max_level(LevelFilter::Trace) // limit log level
+            .with_tag("KernelSU"), // logs will show under mytag tag
     );
+
+    #[cfg(not(target_os = "android"))]
+    env_logger::init();
 
     // the kernel executes su with argv[0] = "su" and replace it with us
     let arg0 = std::env::args().next().unwrap_or_default();
@@ -514,7 +503,6 @@ pub fn run() -> Result<()> {
             init_event::on_boot_completed();
             Ok(())
         }
-        #[cfg(target_arch = "aarch64")]
         Commands::Susfs { command } => {
             match command {
                 Susfs::Version => println!("{}", susfs::get_susfs_version()),
@@ -526,7 +514,10 @@ pub fn run() -> Result<()> {
             Ok(())
         }
         Commands::Module { command } => {
-            utils::switch_mnt_ns(1)?;
+            #[cfg(any(target_os = "linux", target_os = "android"))]
+            {
+                utils::switch_mnt_ns(1)?;
+            }
             match command {
                 Module::Install { zip } => module::install_module(&zip),
                 Module::UndoUninstall { id } => module::undo_uninstall_module(&id),
@@ -534,10 +525,6 @@ pub fn run() -> Result<()> {
                 Module::Enable { id } => module::enable_module(&id),
                 Module::Disable { id } => module::disable_module(&id),
                 Module::Action { id } => module::run_action(&id),
-                #[cfg(all(target_os = "android", target_arch = "aarch64"))]
-                Module::Lua { id, function } => {
-                    module::run_lua(&id, &function, false, true).map_err(|e| anyhow::anyhow!("{e}"))
-                }
                 Module::List => module::list_modules(),
                 Module::Config { command } => {
                     // Get module ID from environment variable
@@ -649,13 +636,7 @@ pub fn run() -> Result<()> {
         },
 
         Commands::Feature { command } => match command {
-            Feature::Get { id, config } => {
-                if config {
-                    crate::feature::get_feature_config(&id)
-                } else {
-                    crate::feature::get_feature(&id)
-                }
-            }
+            Feature::Get { id } => crate::feature::get_feature(&id),
             Feature::Set { id, value } => crate::feature::set_feature(&id, value),
             Feature::List => {
                 crate::feature::list_features();
@@ -732,7 +713,7 @@ pub fn run() -> Result<()> {
         Commands::BootRestore(boot_restore) => crate::boot_patch::restore(boot_restore),
         Commands::Umount { command } => match command {
             Umount::Add { mnt, flags } => ksucalls::umount_list_add(&mnt, flags),
-            Umount::Remove { mnt } => umount::remove_umount_entry_from_config(&mnt),
+            Umount::Remove { mnt } => ksucalls::umount_list_del(&mnt),
             Umount::List => {
                 let list = ksucalls::umount_list_list()?;
                 print!("{list}");
@@ -754,28 +735,23 @@ pub fn run() -> Result<()> {
                 Ok(())
             }
         },
-        Commands::SulogDump => {
-            ksucalls::dump_sulog_to_file()?;
-            println!("sulog saved to /data/adb/ksu/log/sulog.log");
-            Ok(())
-        }
         #[cfg(target_arch = "aarch64")]
         Commands::Kpm { command } => {
             use crate::cli::kpm_cmd::Kpm;
             match command {
                 Kpm::Load { path, args } => {
-                    crate::kpm::load_module(path.to_str().unwrap(), args.as_deref())
+                    crate::kpm::kpm_load(path.to_str().unwrap(), args.as_deref())
                 }
-                Kpm::Unload { name } => crate::kpm::unload_module(name),
-                Kpm::Num => crate::kpm::num().map(|_| ()),
-                Kpm::List => crate::kpm::list(),
-                Kpm::Info { name } => crate::kpm::info(name),
+                Kpm::Unload { name } => crate::kpm::kpm_unload(&name),
+                Kpm::Num => crate::kpm::kpm_num().map(|_| ()),
+                Kpm::List => crate::kpm::kpm_list(),
+                Kpm::Info { name } => crate::kpm::kpm_info(&name),
                 Kpm::Control { name, args } => {
-                    let ret = crate::kpm::control(name, args)?;
+                    let ret = crate::kpm::kpm_control(&name, &args)?;
                     println!("{ret}");
                     Ok(())
                 }
-                Kpm::Version => crate::kpm::version(),
+                Kpm::Version => crate::kpm::kpm_version_loader(),
             }
         }
     };

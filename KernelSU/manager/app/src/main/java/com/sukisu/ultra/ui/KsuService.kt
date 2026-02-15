@@ -1,71 +1,75 @@
 package com.sukisu.ultra.ui
 
+import android.annotation.SuppressLint
 import android.content.Intent
 import android.content.pm.PackageInfo
-import android.content.pm.PackageManager
-import android.os.IBinder
-import android.os.UserHandle
-import android.os.UserManager
+import android.os.*
 import android.util.Log
 import com.topjohnwu.superuser.ipc.RootService
 import com.sukisu.zako.IKsuInterface
-import rikka.parcelablelist.ParcelableListSlice
 
 /**
- * @author weishu
- * @date 2023/4/18.
+ * @author ShirkNeko
+ * @date 2025/10/17.
  */
-
 class KsuService : RootService() {
 
-    companion object {
-        private const val TAG = "KsuService"
-    }
+    private val TAG = "KsuService"
 
-    override fun onBind(intent: Intent): IBinder {
-        return Stub()
-    }
-
-    private fun getUserIds(): List<Int> {
-        val result = ArrayList<Int>()
-        val um = getSystemService(USER_SERVICE) as UserManager
-        val userProfiles = um.userProfiles
-        for (userProfile: UserHandle in userProfiles) {
-            result.add(userProfile.hashCode())
+    private val cacheLock = Object()
+    private var _all: List<PackageInfo>? = null
+    private val allPackages: List<PackageInfo>
+        get() = synchronized(cacheLock) {
+            _all ?: loadAllPackages().also { _all = it }
         }
-        return result
-    }
 
-    private fun getInstalledPackagesAll(flags: Int): ArrayList<PackageInfo> {
-        val packages = ArrayList<PackageInfo>()
-        for (userId in getUserIds()) {
-            Log.i(TAG, "getInstalledPackagesAll: $userId")
-            packages.addAll(getInstalledPackagesAsUser(flags, userId))
+    private fun loadAllPackages(): List<PackageInfo> {
+        val tmp = arrayListOf<PackageInfo>()
+        for (user in (getSystemService(USER_SERVICE) as UserManager).userProfiles) {
+            val userId = user.getUserIdCompat()
+            tmp += getInstalledPackagesAsUser(userId)
         }
-        return packages
+        return tmp
     }
 
-    @Suppress("UNCHECKED_CAST")
-    private fun getInstalledPackagesAsUser(flags: Int, userId: Int): List<PackageInfo> {
+    internal inner class Stub : IKsuInterface.Stub() {
+        override fun getPackageCount(): Int = allPackages.size
+
+        override fun getPackages(start: Int, maxCount: Int): List<PackageInfo> {
+            val list = allPackages
+            val end = (start + maxCount).coerceAtMost(list.size)
+            return if (start >= list.size) emptyList()
+            else list.subList(start, end)
+        }
+    }
+
+    override fun onBind(intent: Intent): IBinder = Stub()
+
+    @SuppressLint("PrivateApi")
+    private fun getInstalledPackagesAsUser(userId: Int): List<PackageInfo> {
         return try {
-            val pm: PackageManager = packageManager
-            val method = pm.javaClass.getDeclaredMethod(
+            val pm = packageManager
+            val m = pm.javaClass.getDeclaredMethod(
                 "getInstalledPackagesAsUser",
-                Int::class.javaPrimitiveType,
-                Int::class.javaPrimitiveType
+                Int::class.java,
+                Int::class.java
             )
-            method.invoke(pm, flags, userId) as List<PackageInfo>
+            @Suppress("UNCHECKED_CAST")
+            m.invoke(pm, 0, userId) as List<PackageInfo>
         } catch (e: Throwable) {
-            Log.e(TAG, "err", e)
-            ArrayList()
+            Log.e(TAG, "getInstalledPackagesAsUser", e)
+            emptyList()
         }
     }
 
-    private inner class Stub : IKsuInterface.Stub() {
-        override fun getPackages(flags: Int): ParcelableListSlice<PackageInfo> {
-            val list = getInstalledPackagesAll(flags)
-            Log.i(TAG, "getPackages: ${list.size}")
-            return ParcelableListSlice(list)
+    private fun UserHandle.getUserIdCompat(): Int {
+        return try {
+            javaClass.getDeclaredField("identifier").apply { isAccessible = true }.getInt(this)
+        } catch (_: NoSuchFieldException) {
+            javaClass.getDeclaredMethod("getIdentifier").invoke(this) as Int
+        } catch (e: Throwable) {
+            Log.e("KsuService", "getUserIdCompat", e)
+            0
         }
     }
 }

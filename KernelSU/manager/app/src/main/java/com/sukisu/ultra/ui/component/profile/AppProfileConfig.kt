@@ -1,18 +1,15 @@
 package com.sukisu.ultra.ui.component.profile
 
 import androidx.compose.foundation.layout.Column
-import androidx.compose.runtime.Composable
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Text
+import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.tooling.preview.Preview
 import com.sukisu.ultra.Natives
 import com.sukisu.ultra.R
-import com.sukisu.ultra.ui.component.EditText
-import top.yukonga.miuix.kmp.extra.SuperSwitch
+import com.sukisu.ultra.ui.component.SwitchItem
 
 @Composable
 fun AppProfileConfig(
@@ -24,15 +21,13 @@ fun AppProfileConfig(
 ) {
     Column(modifier = modifier) {
         if (!fixedName) {
-            EditText(
-                title = stringResource(R.string.profile_name),
-                textValue = remember { mutableStateOf(profile.name) },
-                onTextValueChange = { onProfileChange(profile.copy(name = it)) },
-                enabled = enabled,
+            OutlinedTextField(
+                label = { Text(stringResource(R.string.profile_name)) },
+                value = profile.name,
+                onValueChange = { onProfileChange(profile.copy(name = it)) }
             )
         }
-
-        SuperSwitch(
+        SwitchItem(
             title = stringResource(R.string.profile_umount_modules),
             summary = stringResource(R.string.profile_umount_modules_summary),
             checked = if (enabled) {
