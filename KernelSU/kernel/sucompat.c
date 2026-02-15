@@ -8,6 +8,10 @@
 #else
 #include <asm/pgtable.h>
 #endif
+// Add this compatibility macro
+#if LINUX_VERSION_CODE < KERNEL_VERSION(5, 10, 0)
+#define strncpy_from_user_nofault strncpy_from_unsafe_user
+#endif
 #include <linux/uaccess.h>
 #include <asm/current.h>
 #include <linux/cred.h>
