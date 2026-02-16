@@ -144,3 +144,7 @@ long ksu_strncpy_from_user_nofault(char *dst, const void __user *unsafe_addr,
 #endif
 }
 
+int ksu_access_ok(const void *addr, unsigned long size)
+{
+    return access_ok(addr, size);
+}

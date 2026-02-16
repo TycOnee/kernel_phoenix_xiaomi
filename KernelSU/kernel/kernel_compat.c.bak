@@ -144,11 +144,3 @@ long ksu_strncpy_from_user_nofault(char *dst, const void __user *unsafe_addr,
 #endif
 }
 
-int do_close_fd(unsigned int fd)
-{
-#if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 11, 0)
-	return close_fd(fd);
-#else
-	return __close_fd(current->files, fd);
-#endif
-}
