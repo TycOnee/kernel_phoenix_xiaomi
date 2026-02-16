@@ -9,6 +9,7 @@ kernelsu-objs += throne_tracker.o
 kernelsu-objs += pkg_observer.o
 kernelsu-objs += throne_tracker.o
 kernelsu-objs += setuid_hook.o
+ksu_obj-y += kernel_compat.o
 kernelsu-objs += kernel_umount.o
 kernelsu-objs += supercalls.o
 kernelsu-objs += feature.o
