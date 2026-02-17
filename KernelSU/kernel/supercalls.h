@@ -3,16 +3,19 @@
 
 #include <linux/types.h>
 #include <linux/ioctl.h>
-#include "ksu.h"
 #include "app_profile.h"
-
-#ifdef CONFIG_KPM
-#include "kpm/kpm.h"
-#endif
 
 // Magic numbers for reboot hook to install fd
 #define KSU_INSTALL_MAGIC1 0xDEADBEEF
 #define KSU_INSTALL_MAGIC2 0xCAFEBABE
+
+// Toolkit extensions
+#define CHANGE_MANAGER_UID 10006
+#define GET_SULOG_DUMP_V2 10010
+#define CHANGE_KSUVER 10011     // change ksu version
+#define CHANGE_SPOOF_UNAME 10012 // spoof uname
+#define KSU_UMOUNT_GETSIZE 107   // get list size // shit is u8 we cant fit 10k+ on it
+#define KSU_UMOUNT_GETLIST 108   // get list
 
 // Command structures for ioctl
 
@@ -89,8 +92,12 @@ struct ksu_manage_mark_cmd {
 	__u32 result; // Output: for get operation - mark status or reg_count
 };
 
-struct ksu_nuke_ext4_sysfs_cmd {
-	__aligned_u64 arg; // Input: mnt pointer
+struct ksu_get_hook_mode_cmd {
+	char mode[16];
+};
+
+struct ksu_get_version_tag_cmd {
+	char tag[32];
 };
 
 #define KSU_MARK_GET 1
@@ -98,72 +105,42 @@ struct ksu_nuke_ext4_sysfs_cmd {
 #define KSU_MARK_UNMARK 3
 #define KSU_MARK_REFRESH 4
 
+struct ksu_nuke_ext4_sysfs_cmd {
+    __aligned_u64 arg; // Input: mnt pointer
+};
+
 struct ksu_add_try_umount_cmd {
 	__aligned_u64 arg; // char ptr, this is the mountpoint
 	__u32 flags; // this is the flag we use for it
 	__u8 mode; // denotes what to do with it 0:wipe_list 1:add_to_list 2:delete_entry
 };
 
-struct ksu_list_try_umount_cmd {
-	__aligned_u64 arg; // User buffer
-	__u32 buf_size; // Buffer size provided by userspace
-	__u32 __reserved; // Reserved for future use
-};
+#define KSU_UMOUNT_WIPE 0  // ignore everything and wipe list
+#define KSU_UMOUNT_ADD 1   // add entry (path + flags)
+#define KSU_UMOUNT_DEL 2   // delete entry, strcmp
 
-#define KSU_UMOUNT_WIPE 0 // ignore everything and wipe list
-#define KSU_UMOUNT_ADD 1 // add entry (path + flags)
-#define KSU_UMOUNT_DEL 2 // delete entry, strcmp
-
-// Other command structures
-struct ksu_get_full_version_cmd {
-	char version_full[KSU_FULL_VERSION_STRING]; // Output: full version string
-};
-
-struct ksu_hook_type_cmd {
-	char hook_type[32]; // Output: hook type string
-};
-
-struct ksu_enable_kpm_cmd {
-	__u8 enabled; // Output: true if KPM is enabled
-};
-
-#ifdef CONFIG_KSU_MANUAL_SU
-struct ksu_manual_su_cmd {
-	__u32 option; // Input: operation type (MANUAL_SU_OP_GENERATE_TOKEN, MANUAL_SU_OP_ESCALATE, MANUAL_SU_OP_ADD_PENDING)
-	__u32 target_uid; // Input: target UID
-	__u32 target_pid; // Input: target PID
-	char token_buffer[33]; // Input/Output: token buffer
-};
-#endif
 
 // IOCTL command definitions
 #define KSU_IOCTL_GRANT_ROOT _IOC(_IOC_NONE, 'K', 1, 0)
 #define KSU_IOCTL_GET_INFO _IOC(_IOC_READ, 'K', 2, 0)
 #define KSU_IOCTL_REPORT_EVENT _IOC(_IOC_WRITE, 'K', 3, 0)
-#define KSU_IOCTL_SET_SEPOLICY _IOC(_IOC_READ | _IOC_WRITE, 'K', 4, 0)
+#define KSU_IOCTL_SET_SEPOLICY _IOC(_IOC_READ|_IOC_WRITE, 'K', 4, 0)
 #define KSU_IOCTL_CHECK_SAFEMODE _IOC(_IOC_READ, 'K', 5, 0)
-#define KSU_IOCTL_GET_ALLOW_LIST _IOC(_IOC_READ | _IOC_WRITE, 'K', 6, 0)
-#define KSU_IOCTL_GET_DENY_LIST _IOC(_IOC_READ | _IOC_WRITE, 'K', 7, 0)
-#define KSU_IOCTL_UID_GRANTED_ROOT _IOC(_IOC_READ | _IOC_WRITE, 'K', 8, 0)
-#define KSU_IOCTL_UID_SHOULD_UMOUNT _IOC(_IOC_READ | _IOC_WRITE, 'K', 9, 0)
+#define KSU_IOCTL_GET_ALLOW_LIST _IOC(_IOC_READ|_IOC_WRITE, 'K', 6, 0)
+#define KSU_IOCTL_GET_DENY_LIST _IOC(_IOC_READ|_IOC_WRITE, 'K', 7, 0)
+#define KSU_IOCTL_UID_GRANTED_ROOT _IOC(_IOC_READ|_IOC_WRITE, 'K', 8, 0)
+#define KSU_IOCTL_UID_SHOULD_UMOUNT _IOC(_IOC_READ|_IOC_WRITE, 'K', 9, 0)
 #define KSU_IOCTL_GET_MANAGER_APPID _IOC(_IOC_READ, 'K', 10, 0)
-#define KSU_IOCTL_GET_APP_PROFILE _IOC(_IOC_READ | _IOC_WRITE, 'K', 11, 0)
+#define KSU_IOCTL_GET_APP_PROFILE _IOC(_IOC_READ|_IOC_WRITE, 'K', 11, 0)
 #define KSU_IOCTL_SET_APP_PROFILE _IOC(_IOC_WRITE, 'K', 12, 0)
-#define KSU_IOCTL_GET_FEATURE _IOC(_IOC_READ | _IOC_WRITE, 'K', 13, 0)
+#define KSU_IOCTL_GET_FEATURE _IOC(_IOC_READ|_IOC_WRITE, 'K', 13, 0)
 #define KSU_IOCTL_SET_FEATURE _IOC(_IOC_WRITE, 'K', 14, 0)
 #define KSU_IOCTL_GET_WRAPPER_FD _IOC(_IOC_WRITE, 'K', 15, 0)
-#define KSU_IOCTL_MANAGE_MARK _IOC(_IOC_READ | _IOC_WRITE, 'K', 16, 0)
+#define KSU_IOCTL_MANAGE_MARK _IOC(_IOC_READ|_IOC_WRITE, 'K', 16, 0)
 #define KSU_IOCTL_NUKE_EXT4_SYSFS _IOC(_IOC_WRITE, 'K', 17, 0)
 #define KSU_IOCTL_ADD_TRY_UMOUNT _IOC(_IOC_WRITE, 'K', 18, 0)
-// Other IOCTL command definitions
-#define KSU_IOCTL_GET_FULL_VERSION _IOC(_IOC_READ, 'K', 100, 0)
-#define KSU_IOCTL_HOOK_TYPE _IOC(_IOC_READ, 'K', 101, 0)
-#define KSU_IOCTL_ENABLE_KPM _IOC(_IOC_READ, 'K', 102, 0)
-#ifdef CONFIG_KSU_MANUAL_SU
-#define KSU_IOCTL_MANUAL_SU _IOC(_IOC_READ | _IOC_WRITE, 'K', 106, 0)
-#endif
-#define KSU_IOCTL_LIST_TRY_UMOUNT _IOC(_IOC_READ | _IOC_WRITE, 'K', 200, 0)
-#define KSU_IOCTL_GET_SULOG_DUMP _IOC(_IOC_READ | _IOC_WRITE, 'K', 201, 0)
+#define KSU_IOCTL_GET_HOOK_MODE _IOC(_IOC_READ, 'K', 98, 0)
+#define KSU_IOCTL_GET_VERSION_TAG _IOC(_IOC_READ, 'K', 99, 0)
 
 // IOCTL handler types
 typedef int (*ksu_ioctl_handler_t)(void __user *arg);
@@ -177,16 +154,9 @@ struct ksu_ioctl_cmd_map {
 	ksu_perm_check_t perm_check; // Permission check function
 };
 
-#define KSU_IOCTL(CMD, NAME, HANDLER, PERM)                                    \
-	{                                                                      \
-		.cmd = KSU_IOCTL_##CMD, .name = NAME, .handler = HANDLER,      \
-		.perm_check = PERM                                             \
-	}
-
 // Install KSU fd to current process
 int ksu_install_fd(void);
 
 void ksu_supercalls_init(void);
 void ksu_supercalls_exit(void);
-
 #endif // __KSU_H_SUPERCALLS

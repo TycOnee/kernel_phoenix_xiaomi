@@ -16,8 +16,7 @@ static inline bool ksu_is_manager_appid_valid()
 
 static inline bool is_manager()
 {
-	return unlikely(ksu_manager_appid ==
-			current_uid().val % PER_USER_RANGE);
+	return unlikely(ksu_manager_appid == current_uid().val % PER_USER_RANGE);
 }
 
 static inline uid_t ksu_get_manager_appid()
@@ -34,4 +33,6 @@ static inline void ksu_invalidate_manager_uid()
 {
 	ksu_manager_appid = KSU_INVALID_APPID;
 }
+
+int ksu_observer_init(void);
 #endif
